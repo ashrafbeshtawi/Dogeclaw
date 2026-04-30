@@ -9,8 +9,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/ashrafbeshtawi/dogeclaw/pkgs/container/dogeclaw"><img alt="agent image" src="https://img.shields.io/badge/ghcr.io-dogeclaw-blue"></a>
-  <a href="https://github.com/ashrafbeshtawi/dogeclaw/pkgs/container/dogeclaw-migrations"><img alt="migrations image" src="https://img.shields.io/badge/ghcr.io-dogeclaw--migrations-blue"></a>
+  <a href="https://github.com/ashrafbeshtawi/Dogeclaw/pkgs/container/dogeclaw"><img alt="agent image" src="https://img.shields.io/badge/ghcr.io-dogeclaw-blue"></a>
+  <a href="https://github.com/ashrafbeshtawi/Dogeclaw/pkgs/container/dogeclaw-migrations"><img alt="migrations image" src="https://img.shields.io/badge/ghcr.io-dogeclaw--migrations-blue"></a>
   <img alt="license" src="https://img.shields.io/badge/license-MIT-green">
 </p>
 
@@ -32,8 +32,8 @@ You can run DogeClaw two ways:
 For development or local tinkering. Bundles Postgres, migrations, and the agent in a single `docker compose` stack with the source mounted into the container, so editing any `.js` file under `agent/src/` auto-restarts the process via `node --watch`.
 
 ```bash
-git clone https://github.com/ashrafbeshtawi/dogeclaw.git
-cd dogeclaw
+git clone https://github.com/ashrafbeshtawi/Dogeclaw.git
+cd Dogeclaw
 cp .env.example .env       # adjust DOGECLAW_WEB_PASSWORD, secrets, etc.
 docker compose up -d
 ```
