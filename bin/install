@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Reinstall agent deps inside the running container.
+# The entrypoint already does this on every start; this is for refreshing
+# mid-session after editing package.json without restarting the container.
+set -e
+cd "$(dirname "$0")/.."
+docker compose exec dogeclaw bash -c 'cd /opt/agent && npm install --omit=dev && npm rebuild'

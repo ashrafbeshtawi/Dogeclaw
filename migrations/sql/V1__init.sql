@@ -1,0 +1,47 @@
+-- DogeClaw initial schema
+
+CREATE TABLE IF NOT EXISTS models (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  provider TEXT NOT NULL DEFAULT 'ollama',
+  base_url TEXT NOT NULL DEFAULT 'http://ollama:11434',
+  model_id TEXT NOT NULL,
+  api_key TEXT,
+  think BOOLEAN NOT NULL DEFAULT false,
+  accepts JSONB NOT NULL DEFAULT '["text"]',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS agents (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  system_prompt TEXT NOT NULL DEFAULT '',
+  model_id INTEGER REFERENCES models(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS skills (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  description TEXT NOT NULL DEFAULT '',
+  content TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS agent_skills (
+  agent_id INTEGER NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  skill_id INTEGER NOT NULL REFERENCES skills(id) ON DELETE CASCADE,
+  PRIMARY KEY (agent_id, skill_id)
+);
+
+CREATE TABLE IF NOT EXISTS channels (
+  id SERIAL PRIMARY KEY,
+  agent_id INTEGER NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  type TEXT NOT NULL,
+  name TEXT NOT NULL,
+  config JSONB NOT NULL DEFAULT '{}',
+  response_mode TEXT NOT NULL DEFAULT 'immediate',
+  response_interval TEXT,
+  enabled BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

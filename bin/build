@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Rebuild the dogeclaw image (run when Dockerfile or package*.json change).
+set -e
+cd "$(dirname "$0")/.."
+docker compose build dogeclaw

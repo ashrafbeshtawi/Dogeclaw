@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Restart the dogeclaw container — picks up source changes from the host mount.
+set -e
+cd "$(dirname "$0")/.."
+docker compose restart dogeclaw

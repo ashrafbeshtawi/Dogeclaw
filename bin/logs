@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Tail dogeclaw container logs.
+set -e
+cd "$(dirname "$0")/.."
+docker compose logs -f dogeclaw

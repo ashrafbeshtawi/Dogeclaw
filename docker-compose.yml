@@ -1,0 +1,75 @@
+# Local development compose for the DogeClaw agent.
+# Brings up just enough to hack on the agent: postgres + migrations + agent.
+# No traefik, no auth — the web UI is exposed directly on http://localhost:3000.
+#
+# Real deployments should NOT use this file. They consume the published images:
+#   ghcr.io/ashrafbeshtawi/dogeclaw:vX.Y.Z
+#   ghcr.io/ashrafbeshtawi/dogeclaw-migrations:vX.Y.Z
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: dogeclaw-postgres
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-dogeclaw}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-changeme}
+      - POSTGRES_DB=${POSTGRES_DB:-dogeclaw}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dogeclaw}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    ports:
+      # Exposed on a non-standard host port to avoid colliding with other
+      # local postgres instances. Connect from the host with:
+      #   psql -h localhost -p ${POSTGRES_HOST_PORT:-5434} -U dogeclaw
+      - "${POSTGRES_HOST_PORT:-5434}:5432"
+    networks:
+      - dogeclaw
+
+  migrations:
+    build: ./migrations
+    container_name: dogeclaw-migrations
+    environment:
+      - FLYWAY_URL=jdbc:postgresql://postgres:5432/${POSTGRES_DB:-dogeclaw}
+      - FLYWAY_USER=${POSTGRES_USER:-dogeclaw}
+      - FLYWAY_PASSWORD=${POSTGRES_PASSWORD:-changeme}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - dogeclaw
+    restart: "no"
+
+  dogeclaw:
+    build: .
+    container_name: dogeclaw
+    environment:
+      - DOGECLAW_PORT=${DOGECLAW_PORT:-3000}
+      - DOGECLAW_WEB_USER=${DOGECLAW_WEB_USER:-admin}
+      - DOGECLAW_WEB_PASSWORD=${DOGECLAW_WEB_PASSWORD:-changeme}
+      - DOGECLAW_WEB_SECRET=${DOGECLAW_WEB_SECRET:-dogeclaw-change-me}
+      - DOGECLAW_ADMIN_DATABASE_URL=postgres://${POSTGRES_USER:-dogeclaw}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/${POSTGRES_DB:-dogeclaw}
+      - DOGECLAW_DATABASE_URL=postgres://dogeclaw:dogeclaw-agent-pw@postgres:5432/${POSTGRES_DB:-dogeclaw}
+      - DOGECLAW_OLLAMA_URL=${DOGECLAW_OLLAMA_URL:-}
+      - DOGECLAW_TELEGRAM_MODE=${DOGECLAW_TELEGRAM_MODE:-polling}
+      - DOGECLAW_WEBHOOK_URL=${DOGECLAW_WEBHOOK_URL:-}
+    volumes:
+      - agent_workspace:/root/agent-workspace
+      - ./agent:/opt/agent
+    ports:
+      - "3000:3000"
+    depends_on:
+      migrations:
+        condition: service_completed_successfully
+    networks:
+      - dogeclaw
+
+volumes:
+  postgres_data:
+  agent_workspace:
+
+networks:
+  dogeclaw:
