@@ -12,8 +12,13 @@
         .topbar h1 { font-size: 1.15rem; font-weight: 800; letter-spacing: -0.02em; flex: 1; }
         .topbar a { color: #dc2626; font-size: 0.85rem; text-decoration: none; font-weight: 600; transition: opacity 0.15s; }
         .topbar a:hover { opacity: 0.8; }
-        .container { max-width: 960px; margin: 0 auto; padding: 2rem; }
-        .section { margin-bottom: 2.5rem; }
+        .container { max-width: 960px; margin: 0 auto; padding: 1.25rem 2rem 2rem; }
+        .tabs { display: flex; gap: 0.25rem; max-width: 960px; margin: 0 auto; padding: 0 2rem; border-bottom: 1px solid rgba(255,255,255,0.05); overflow-x: auto; }
+        .tab-button { padding: 0.85rem 1.1rem; background: transparent; border: none; color: #64748b; font-size: 0.85rem; font-weight: 600; cursor: pointer; border-bottom: 2px solid transparent; transition: color 0.15s, border-color 0.15s; white-space: nowrap; }
+        .tab-button:hover { color: #e2e8f0; }
+        .tab-button.active { color: #fca5a5; border-bottom-color: #dc2626; }
+        .section { margin-bottom: 0; display: none; }
+        .section.active { display: block; }
         .section-header { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem; }
         .section-header h2 { font-size: 1rem; font-weight: 700; }
         .section-header button { background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%); color: #fff; border: none; border-radius: 8px; padding: 0.35rem 0.8rem; font-size: 0.75rem; cursor: pointer; font-weight: 700; transition: box-shadow 0.2s; }
@@ -64,9 +69,18 @@
         <a href="/">&larr; Back to Chat</a>
     </div>
 
+    <div class="tabs">
+        <button class="tab-button" data-tab="models" onclick="showTab('models')">Models</button>
+        <button class="tab-button" data-tab="agents" onclick="showTab('agents')">Agents</button>
+        <button class="tab-button" data-tab="skills" onclick="showTab('skills')">Skills</button>
+        <button class="tab-button" data-tab="channels" onclick="showTab('channels')">Channels</button>
+        <button class="tab-button" data-tab="crons" onclick="showTab('crons')">Cron Jobs</button>
+        <button class="tab-button" data-tab="settings" onclick="showTab('settings')">Settings</button>
+    </div>
+
     <div class="container">
         <!-- Models -->
-        <div class="section">
+        <div class="section" id="tab-models">
             <div class="section-header">
                 <h2>Models</h2>
                 <button onclick="openModelModal()">+ New Model</button>
@@ -78,7 +92,7 @@
         </div>
 
         <!-- Agents -->
-        <div class="section">
+        <div class="section" id="tab-agents">
             <div class="section-header">
                 <h2>Agents</h2>
                 <button onclick="openAgentModal()">+ New Agent</button>
@@ -90,7 +104,7 @@
         </div>
 
         <!-- Skills -->
-        <div class="section">
+        <div class="section" id="tab-skills">
             <div class="section-header">
                 <h2>Skills</h2>
                 <button onclick="openSkillModal()">+ New Skill</button>
@@ -103,7 +117,7 @@
         </div>
 
         <!-- Channels -->
-        <div class="section">
+        <div class="section" id="tab-channels">
             <div class="section-header">
                 <h2>Channels</h2>
                 <button onclick="openChannelModal()">+ New Channel</button>
@@ -113,6 +127,36 @@
                 <tbody id="channelsTable"></tbody>
             </table>
             <div class="hint" id="telegramModeHint"></div>
+        </div>
+
+        <!-- Cron Jobs -->
+        <div class="section" id="tab-crons">
+            <div class="section-header">
+                <h2>Cron Jobs</h2>
+                <button onclick="openCronModal()">+ New Job</button>
+            </div>
+            <table>
+                <thead><tr><th>ID</th><th>Agent</th><th>Target</th><th>Schedule</th><th>Prompt</th><th>Last run</th><th>Enabled</th><th></th></tr></thead>
+                <tbody id="cronsTable"></tbody>
+            </table>
+            <div class="hint">Recurring uses standard cron syntax. One-shots auto-disable after firing. Web-session jobs are deleted with their session; channel jobs survive session resets.</div>
+        </div>
+
+        <!-- Settings -->
+        <div class="section" id="tab-settings">
+            <div class="section-header">
+                <h2>Settings</h2>
+            </div>
+            <table>
+                <tbody>
+                    <tr>
+                        <td style="width:200px"><strong>Timezone</strong></td>
+                        <td><select id="settingTimezone" style="width:280px;padding:0.4rem 0.6rem;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:6px;color:#e2e8f0;font-family:inherit;font-size:0.85rem"></select></td>
+                        <td><button onclick="saveTimezone()" style="background:linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);color:#fff;border:none;border-radius:8px;padding:0.35rem 0.8rem;font-size:0.75rem;cursor:pointer;font-weight:700">Save</button></td>
+                    </tr>
+                </tbody>
+            </table>
+            <div class="hint">IANA timezone — default for new cron jobs.</div>
         </div>
     </div>
 
@@ -196,6 +240,72 @@
         </div>
     </div>
 
+    <!-- Cron Modal -->
+    <div class="modal-overlay" id="cronModal">
+        <div class="modal">
+            <h3 id="cronModalTitle">New Cron Job</h3>
+            <input type="hidden" id="cronId">
+
+            <label>Agent</label>
+            <select id="cronAgent"></select>
+
+            <label>Target type</label>
+            <select id="cronTargetType" onchange="onCronTargetTypeChange()">
+                <option value="telegram">Telegram channel + chat</option>
+                <option value="web">Web session</option>
+            </select>
+
+            <div id="cronTelegramFields">
+                <label>Telegram channel</label>
+                <select id="cronChannel"></select>
+                <label>Chat ID</label>
+                <input type="text" id="cronChatId" placeholder="123456789">
+                <div class="field-hint">Numeric Telegram chat id this job will push messages to.</div>
+            </div>
+
+            <div id="cronWebFields" style="display:none">
+                <label>Web session</label>
+                <select id="cronSession"></select>
+                <div class="field-hint">Job is deleted when the session is deleted. No push notification — reply appears next time the user opens the session.</div>
+            </div>
+
+            <label>Schedule type</label>
+            <select id="cronScheduleType" onchange="onCronScheduleTypeChange()">
+                <option value="recurring">Recurring (cron)</option>
+                <option value="one_shot">One-shot</option>
+            </select>
+
+            <div id="cronExpressionField">
+                <label>Cron expression</label>
+                <input type="text" id="cronExpression" placeholder="0 9 * * *">
+                <div class="field-hint">e.g. <code>*/30 * * * *</code> every 30 min, <code>0 9 * * *</code> daily 09:00.</div>
+            </div>
+
+            <div id="cronRunAtField" style="display:none">
+                <label>Run at</label>
+                <input type="datetime-local" id="cronRunAt">
+                <div class="field-hint">One-shot. Auto-disabled after firing. Interpreted in the timezone below.</div>
+            </div>
+
+            <label>Timezone</label>
+            <select id="cronTimezone"></select>
+
+            <label>Description (optional)</label>
+            <input type="text" id="cronDescription" placeholder="Morning check-in">
+
+            <label>Prompt</label>
+            <textarea id="cronPrompt" placeholder="Instruction given to the agent when the job fires..."></textarea>
+
+            <div class="toggle"><input type="checkbox" id="cronEnabled" checked><label for="cronEnabled">Enabled</label></div>
+            <div class="field-hint" id="cronEditHint" style="display:none;color:#fca5a5">Target (agent, channel/session, chat id) cannot be changed after creation.</div>
+
+            <div class="btn-row">
+                <button class="btn-cancel" onclick="closeModal('cronModal')">Cancel</button>
+                <button class="btn-save" onclick="saveCron()">Save</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Channel Modal -->
     <div class="modal-overlay" id="channelModal">
         <div class="modal">
@@ -226,7 +336,31 @@
     </div>
 
     <script>
-        var models = [], agents = [], channels = [], skills = [], siteConfig = {};
+        var models = [], agents = [], channels = [], skills = [], siteConfig = {}, crons = [], sessions = [], settings = {};
+
+        var TIMEZONES = (typeof Intl !== 'undefined' && Intl.supportedValuesOf)
+            ? Intl.supportedValuesOf('timeZone')
+            : ['UTC'];
+
+        function timezoneOptions(selected) {
+            return TIMEZONES.map(function(tz){
+                return '<option value="'+esc(tz)+'"'+(tz===selected?' selected':'')+'>'+esc(tz)+'</option>';
+            }).join('');
+        }
+
+        function showTab(name) {
+            document.querySelectorAll('.tab-button').forEach(function(b){ b.classList.toggle('active', b.dataset.tab === name); });
+            document.querySelectorAll('.section').forEach(function(s){ s.classList.toggle('active', s.id === 'tab-'+name); });
+            if (window.location.hash !== '#'+name) {
+                history.replaceState(null, '', '#'+name);
+            }
+        }
+
+        function initialTab() {
+            var fromHash = (window.location.hash || '').replace(/^#/, '');
+            var valid = ['models','agents','skills','channels','crons','settings'];
+            return valid.includes(fromHash) ? fromHash : 'models';
+        }
 
         async function api(method, path, body) {
             var opts = { method: method, headers: { 'Content-Type': 'application/json' } };
@@ -237,9 +371,19 @@
         }
 
         async function load() {
-            var r = await Promise.all([api('GET','/api/models'),api('GET','/api/agents'),api('GET','/api/channels'),api('GET','/api/skills'),api('GET','/api/config')]);
+            var r = await Promise.all([
+                api('GET','/api/models'),
+                api('GET','/api/agents'),
+                api('GET','/api/channels'),
+                api('GET','/api/skills'),
+                api('GET','/api/config'),
+                api('GET','/api/cron-jobs'),
+                api('GET','/api/sessions'),
+                api('GET','/api/settings'),
+            ]);
             models = r[0].models; agents = r[1].agents; channels = r[2].channels; skills = r[3].skills; siteConfig = r[4];
-            renderModels(); renderAgents(); renderSkills(); renderChannels();
+            crons = r[5].jobs || []; sessions = r[6].sessions || []; settings = r[7] || {};
+            renderModels(); renderAgents(); renderSkills(); renderChannels(); renderCrons(); renderSettings();
             var mh = document.getElementById('telegramModeHint');
             mh.innerHTML = siteConfig.telegramMode === 'webhook' && siteConfig.webhookUrl
                 ? 'Telegram mode: <strong>webhook</strong> &mdash; <code>' + esc(siteConfig.webhookUrl) + '</code>'
@@ -488,7 +632,142 @@
         }
         async function deleteChannel(id){if(!confirm('Delete this channel?'))return;await api('DELETE','/api/channels/'+id);load();}
 
+        // Cron CRUD
+        function renderCrons() {
+            document.getElementById('cronsTable').innerHTML = crons.map(function(j) {
+                var sched = j.expression
+                    ? '<code>' + esc(j.expression) + '</code>'
+                    : 'at ' + esc(new Date(j.run_at).toISOString());
+                var target;
+                if (j.chat_id) target = 'TG: <strong>' + esc(j.channel_name||'?') + '</strong> / ' + esc(j.chat_id);
+                else if (j.session_id) target = 'Web: <code>' + esc(String(j.session_id).slice(0,16)) + (j.session_id.length>16?'…':'') + '</code>';
+                else target = '?';
+                var last = j.last_run_at
+                    ? '<span class="badge ' + (j.last_status==='ok'?'badge-on':'badge-off') + '">' + esc(j.last_status||'?') + '</span> <span style="color:#64748b;font-size:0.7rem">' + esc(new Date(j.last_run_at).toISOString().replace('T',' ').slice(0,16)) + '</span>'
+                    : '<span style="color:#64748b">never</span>';
+                var tz = (j.timezone && j.timezone!=='UTC') ? ' <span style="color:#64748b;font-size:0.7rem">' + esc(j.timezone) + '</span>' : '';
+                var promptCell = '<div style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(j.prompt||'') + '</div>'
+                    + (j.description ? '<div class="cron-desc" style="font-size:0.7rem;color:#64748b;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(j.description) + '</div>' : '');
+                return '<tr><td>' + j.id + '</td>'
+                    + '<td>' + esc(j.agent_name||'?') + '</td>'
+                    + '<td>' + target + '</td>'
+                    + '<td>' + sched + tz + '</td>'
+                    + '<td>' + promptCell + '</td>'
+                    + '<td>' + last + '</td>'
+                    + '<td><span class="badge ' + (j.enabled?'badge-on':'badge-off') + '">' + (j.enabled?'on':'off') + '</span></td>'
+                    + '<td class="actions"><button onclick="editCron(' + j.id + ')">Edit</button>'
+                    + '<button class="danger" onclick="deleteCron(' + j.id + ')">Delete</button></td></tr>';
+            }).join('');
+        }
+
+        function renderSettings() {
+            document.getElementById('settingTimezone').innerHTML = timezoneOptions(settings.timezone || 'UTC');
+        }
+
+        function onCronTargetTypeChange() {
+            var t = document.getElementById('cronTargetType').value;
+            document.getElementById('cronTelegramFields').style.display = t==='telegram'?'block':'none';
+            document.getElementById('cronWebFields').style.display = t==='web'?'block':'none';
+        }
+
+        function onCronScheduleTypeChange() {
+            var t = document.getElementById('cronScheduleType').value;
+            document.getElementById('cronExpressionField').style.display = t==='recurring'?'block':'none';
+            document.getElementById('cronRunAtField').style.display = t==='one_shot'?'block':'none';
+        }
+
+        function openCronModal(j) {
+            if (typeof j==='number') j = find(crons, j);
+            var editing = !!j;
+            document.getElementById('cronModalTitle').textContent = editing?'Edit Cron Job':'New Cron Job';
+            document.getElementById('cronId').value = editing?j.id:'';
+            document.getElementById('cronAgent').innerHTML = agents.map(function(a){return '<option value="'+a.id+'">'+esc(a.name)+'</option>';}).join('');
+            document.getElementById('cronAgent').value = editing?j.agent_id:(agents[0]?agents[0].id:'');
+            document.getElementById('cronChannel').innerHTML = channels.filter(function(c){return c.type==='telegram';}).map(function(c){return '<option value="'+c.id+'">'+esc(c.name)+'</option>';}).join('');
+            document.getElementById('cronSession').innerHTML = sessions.map(function(s){return '<option value="'+esc(s.id)+'">'+esc(s.id)+' &mdash; '+esc(s.agentName||'?')+'</option>';}).join('');
+
+            var targetType = (editing && j.session_id) ? 'web' : 'telegram';
+            document.getElementById('cronTargetType').value = targetType;
+            if (editing && j.channel_id) document.getElementById('cronChannel').value = j.channel_id;
+            if (editing && j.session_id) document.getElementById('cronSession').value = j.session_id;
+            document.getElementById('cronChatId').value = editing && j.chat_id ? j.chat_id : '';
+
+            var schedType = (editing && j.run_at) ? 'one_shot' : 'recurring';
+            document.getElementById('cronScheduleType').value = schedType;
+            document.getElementById('cronExpression').value = editing ? (j.expression || '') : '';
+            document.getElementById('cronRunAt').value = editing && j.run_at ? new Date(j.run_at).toISOString().slice(0,16) : '';
+
+            document.getElementById('cronTimezone').innerHTML = timezoneOptions(editing ? (j.timezone || 'UTC') : (settings.timezone || 'UTC'));
+            document.getElementById('cronDescription').value = editing ? (j.description || '') : '';
+            document.getElementById('cronPrompt').value = editing ? (j.prompt || '') : '';
+            document.getElementById('cronEnabled').checked = editing ? j.enabled !== false : true;
+
+            document.getElementById('cronTargetType').disabled = editing;
+            document.getElementById('cronChannel').disabled = editing;
+            document.getElementById('cronChatId').disabled = editing;
+            document.getElementById('cronSession').disabled = editing;
+            document.getElementById('cronAgent').disabled = editing;
+            document.getElementById('cronEditHint').style.display = editing ? 'block' : 'none';
+
+            onCronTargetTypeChange();
+            onCronScheduleTypeChange();
+            document.getElementById('cronModal').classList.add('open');
+        }
+
+        function editCron(id){ openCronModal(id); }
+
+        async function saveCron() {
+            var id = document.getElementById('cronId').value;
+            var schedType = document.getElementById('cronScheduleType').value;
+            var targetType = document.getElementById('cronTargetType').value;
+            var body = {
+                timezone: document.getElementById('cronTimezone').value || null,
+                description: document.getElementById('cronDescription').value,
+                prompt: document.getElementById('cronPrompt').value,
+                enabled: document.getElementById('cronEnabled').checked,
+            };
+            if (schedType === 'recurring') {
+                body.expression = document.getElementById('cronExpression').value;
+                body.run_at = null;
+            } else {
+                var raw = document.getElementById('cronRunAt').value;
+                body.run_at = raw ? new Date(raw).toISOString() : null;
+                body.expression = null;
+            }
+            if (!id) {
+                body.agent_id = parseInt(document.getElementById('cronAgent').value);
+                if (targetType === 'telegram') {
+                    body.channel_id = parseInt(document.getElementById('cronChannel').value);
+                    body.chat_id = document.getElementById('cronChatId').value;
+                    body.session_id = null;
+                } else {
+                    body.session_id = document.getElementById('cronSession').value;
+                    body.channel_id = null;
+                    body.chat_id = null;
+                }
+            }
+            var r = id ? await api('PUT','/api/cron-jobs/'+id,body) : await api('POST','/api/cron-jobs',body);
+            if (r && r.error) { alert(r.error); return; }
+            closeModal('cronModal'); load();
+        }
+
+        async function deleteCron(id) {
+            if (!confirm('Delete this cron job?')) return;
+            await api('DELETE','/api/cron-jobs/'+id); load();
+        }
+
+        async function saveTimezone() {
+            var v = document.getElementById('settingTimezone').value.trim();
+            if (!v) return alert('Timezone required');
+            var r = await api('PUT','/api/settings/timezone',{ value: v });
+            if (r && r.error) return alert(r.error);
+            await load();
+        }
+
         function closeModal(id){document.getElementById(id).classList.remove('open');}
+
+        window.addEventListener('hashchange', function(){ showTab(initialTab()); });
+        showTab(initialTab());
         load();
     </script>
 </body>

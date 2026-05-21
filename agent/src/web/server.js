@@ -1,11 +1,26 @@
 import express from 'express';
 import { createHmac, randomUUID } from 'node:crypto';
-import { readFile, writeFile, readdir, mkdir, unlink } from 'node:fs/promises';
-import { join, dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import config from '../config.js';
 import { adminQuery as query } from '../db/pool.js';
-import { transcribeAudio } from '../audio.js';
+import {
+  loadSession,
+  ensureSession,
+  appendMessage,
+  listSessions,
+  deleteSession,
+} from '../db/sessions.js';
+import {
+  listJobs as listCronJobs,
+  getJob as getCronJob,
+  createJob as createCronJob,
+  updateJob as updateCronJob,
+  deleteJob as deleteCronJob,
+} from '../db/crons.js';
+import { reloadCronJobs } from '../cron/runner.js';
+import { getAllSettings, setSetting } from '../db/settings.js';
+import { withSessionLock } from '../lib/sessionLock.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -69,34 +84,36 @@ export function createWebServer(agent) {
   // --- Sessions ---
   app.get('/api/sessions', authMiddleware, async (req, res) => {
     try {
-      await mkdir(config.paths.sessions, { recursive: true });
-      const files = await readdir(config.paths.sessions);
-      const sessions = [];
-      for (const f of files.filter(f => f.endsWith('.json'))) {
-        try {
-          const data = JSON.parse(await readFile(join(config.paths.sessions, f), 'utf-8'));
-          const id = f.replace('.json', '');
-          const lastMsg = data.messages?.[data.messages.length - 1]?.content?.slice(0, 60) || '';
-          sessions.push({ id, agentId: data.agentId, agentName: data.agentName, source: data.source || 'web', preview: lastMsg });
-        } catch {}
-      }
+      const sessions = await listSessions();
       res.json({ sessions });
     } catch { res.json({ sessions: [] }); }
   });
 
   app.get('/api/sessions/:id', authMiddleware, async (req, res) => {
     try {
-      const file = join(config.paths.sessions, `${req.params.id}.json`);
-      const data = JSON.parse(await readFile(file, 'utf-8'));
+      const data = await loadSession(req.params.id);
+      if (!data.agentId && !data.messages.length) return res.status(404).json({ error: 'not found' });
       res.json(data);
     } catch { res.status(404).json({ error: 'not found' }); }
   });
 
-  app.delete('/api/sessions/:id', authMiddleware, async (req, res) => {
+  app.get('/api/sessions/:id/crons', authMiddleware, async (req, res) => {
     try {
-      await unlink(join(config.paths.sessions, `${req.params.id}.json`));
-      res.json({ ok: true });
-    } catch { res.status(404).json({ error: 'not found' }); }
+      const r = await query(
+        `SELECT id, description, expression, run_at, prompt, enabled
+           FROM cron_jobs WHERE session_id = $1 ORDER BY id`,
+        [req.params.id],
+      );
+      res.json({ jobs: r.rows });
+    } catch { res.json({ jobs: [] }); }
+  });
+
+  app.delete('/api/sessions/:id', authMiddleware, async (req, res) => {
+    const ok = await deleteSession(req.params.id);
+    if (!ok) return res.status(404).json({ error: 'not found' });
+    // Crons with session_id = $1 are cascaded by the FK; refresh the runner.
+    reloadCronJobs();
+    res.json({ ok: true });
   });
 
   // --- Chat (SSE streaming) ---
@@ -105,14 +122,12 @@ export function createWebServer(agent) {
     if (!message && !images?.length && !audio) return res.status(400).json({ error: 'message, images, or audio required' });
 
     const sid = reqSessionId || randomUUID();
-    const sessionData = await loadSession(sid);
-    const history = sessionData.messages || [];
+    const existing = await loadSession(sid);
+    const aid = agentId || existing.agentId;
+    if (!aid) return res.status(400).json({ error: 'No agent selected. Create an agent in the admin UI first.' });
 
-    // Load agent + model config
     let agentConfig = null;
     let modelConfig = null;
-    const aid = agentId || sessionData.agentId;
-    if (!aid) return res.status(400).json({ error: 'No agent selected. Create an agent in the admin UI first.' });
     try {
       const result = await query(
         `SELECT a.*, m.base_url, m.model_id as ollama_model, m.think, m.accepts, m.provider, m.api_key
@@ -133,7 +148,6 @@ export function createWebServer(agent) {
     if (!agentConfig) return res.status(404).json({ error: 'Agent not found.' });
     if (!modelConfig?.model_id) return res.status(400).json({ error: 'This agent has no model assigned. Configure it in the admin UI.' });
 
-    // SSE headers
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
@@ -144,48 +158,57 @@ export function createWebServer(agent) {
       res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
     };
 
-    try {
-      let fullContent = '';
-      let fullThinking = '';
+    await ensureSession(sid, {
+      agentId: aid,
+      agentName: agentConfig?.name || 'default',
+      source: 'web',
+    });
 
-      const result = await agent.run(message || '', history, {
-        agentId: aid,
-        systemPrompt: agentConfig?.system_prompt,
-        modelConfig,
-        images: images || undefined,
-        audio: audio || undefined,
-        audioMime: audioMime || undefined,
-        onEvent: (type, data) => {
-          if (type === 'thinking') { fullThinking += data; send('thinking', data); }
-          else if (type === 'content') { fullContent += data; send('content', data); }
-          else if (type === 'tool_calls') { send('tool_calls', data); }
-          else if (type === 'tool_result') { send('tool_result', data); }
-          else if (type === 'status') { send('status', data); }
-          else if (type === 'transcript') { send('transcript', data); }
-        },
-      });
+    await withSessionLock(sid, async () => {
+      try {
+        const { messages: history } = await loadSession(sid);
+        let fullContent = '';
+        let fullThinking = '';
 
-      const finalContent = fullContent || result.content;
+        const result = await agent.run(message || '', history, {
+          agentId: aid,
+          sessionId: sid,
+          systemPrompt: agentConfig?.system_prompt,
+          modelConfig,
+          images: images || undefined,
+          audio: audio || undefined,
+          audioMime: audioMime || undefined,
+          onEvent: (type, data) => {
+            if (type === 'thinking') { fullThinking += data; send('thinking', data); }
+            else if (type === 'content') { fullContent += data; send('content', data); }
+            else if (type === 'tool_calls') { send('tool_calls', data); }
+            else if (type === 'tool_result') { send('tool_result', data); }
+            else if (type === 'status') { send('status', data); }
+            else if (type === 'transcript') { send('transcript', data); }
+          },
+        });
 
-      const userLabel = audio ? `[voice] ${message || '(audio)'}` : (message || '(image)');
-      history.push({ role: 'user', content: userLabel, ...(images?.length ? { hasImage: true } : {}), ...(audio ? { hasAudio: true } : {}) });
-      history.push({
-        role: 'assistant', content: finalContent,
-        ...(fullThinking ? { thinking: fullThinking } : {}),
-        ...(result.toolCalls?.length ? { toolCalls: result.toolCalls } : {}),
-      });
-      while (history.length > 40) history.shift();
+        const finalContent = fullContent || result.content;
+        const userLabel = audio ? `[voice] ${message || '(audio)'}` : (message || '(image)');
 
-      await saveSession(sid, {
-        messages: history,
-        agentId: aid,
-        agentName: agentConfig?.name || 'default',
-      });
+        await appendMessage(sid, {
+          role: 'user',
+          content: userLabel,
+          hasImage: !!images?.length,
+          hasAudio: !!audio,
+        });
+        await appendMessage(sid, {
+          role: 'assistant',
+          content: finalContent,
+          thinking: fullThinking || null,
+          toolCalls: result.toolCalls?.length ? result.toolCalls : null,
+        });
 
-      send('done', { sessionId: sid });
-    } catch (err) {
-      send('error', { message: err.message });
-    }
+        send('done', { sessionId: sid });
+      } catch (err) {
+        send('error', { message: err.message });
+      }
+    });
 
     res.end();
   });
@@ -304,6 +327,8 @@ export function createWebServer(agent) {
     await query('DELETE FROM agents WHERE id = $1', [req.params.id]);
     res.json({ ok: true });
     reloadTelegram();
+    // Agents cascade to cron_jobs via FK; refresh the runner so it drops them.
+    reloadCronJobs();
   });
 
   // --- Skills CRUD ---
@@ -423,19 +448,82 @@ export function createWebServer(agent) {
     await query('DELETE FROM channels WHERE id = $1', [req.params.id]);
     res.json({ ok: true });
     if (telegramManager) telegramManager.reload().catch(e => console.error('[telegram] reload failed:', e.message));
+    // Channels cascade to cron_jobs via FK; refresh the runner so it drops them.
+    reloadCronJobs();
+  });
+
+  // --- Cron jobs CRUD ---
+  app.get('/api/cron-jobs', authMiddleware, async (req, res) => {
+    res.json({ jobs: await listCronJobs() });
+  });
+
+  app.get('/api/cron-jobs/:id', authMiddleware, async (req, res) => {
+    const job = await getCronJob(req.params.id);
+    if (!job) return res.status(404).json({ error: 'not found' });
+    res.json(job);
+  });
+
+  app.post('/api/cron-jobs', authMiddleware, async (req, res) => {
+    const { agent_id, channel_id, chat_id, session_id, expression, run_at, timezone, description, prompt, enabled } = req.body;
+    try {
+      const job = await createCronJob({
+        agentId: agent_id,
+        channelId: channel_id ?? null,
+        chatId: chat_id ?? null,
+        sessionId: session_id ?? null,
+        expression: expression ?? null,
+        runAt: run_at ?? null,
+        timezone,
+        description,
+        prompt,
+        enabled,
+      });
+      reloadCronJobs();
+      res.json(job);
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.put('/api/cron-jobs/:id', authMiddleware, async (req, res) => {
+    const { expression, run_at, timezone, description, prompt, enabled } = req.body;
+    try {
+      const job = await updateCronJob(req.params.id, {
+        expression,
+        runAt: run_at,
+        timezone,
+        description,
+        prompt,
+        enabled,
+      });
+      if (!job) return res.status(404).json({ error: 'not found' });
+      reloadCronJobs();
+      res.json(job);
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.delete('/api/cron-jobs/:id', authMiddleware, async (req, res) => {
+    const ok = await deleteCronJob(req.params.id);
+    if (!ok) return res.status(404).json({ error: 'not found' });
+    reloadCronJobs();
+    res.json({ ok: true });
+  });
+
+  // --- Settings ---
+  app.get('/api/settings', authMiddleware, async (req, res) => {
+    res.json(await getAllSettings());
+  });
+
+  app.put('/api/settings/:key', authMiddleware, async (req, res) => {
+    const { value } = req.body;
+    if (value === undefined) return res.status(400).json({ error: 'value required' });
+    await setSetting(req.params.key, value);
+    // Timezone changes affect cron scheduling — reload to pick up the new default.
+    if (req.params.key === 'timezone') reloadCronJobs();
+    res.json({ ok: true });
   });
 
   return app;
-}
-
-async function loadSession(id) {
-  try {
-    const file = join(config.paths.sessions, `${id}.json`);
-    return JSON.parse(await readFile(file, 'utf-8'));
-  } catch { return { messages: [] }; }
-}
-
-async function saveSession(id, data) {
-  await mkdir(config.paths.sessions, { recursive: true });
-  await writeFile(join(config.paths.sessions, `${id}.json`), JSON.stringify(data), 'utf-8');
 }

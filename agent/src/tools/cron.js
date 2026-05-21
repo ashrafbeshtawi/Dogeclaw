@@ -1,80 +1,80 @@
-import { readFile, writeFile } from 'node:fs/promises';
-import { randomUUID } from 'node:crypto';
-import config from '../config.js';
-
-let cronRunner = null;
-
-export function setCronRunner(runner) {
-  cronRunner = runner;
-}
-
-async function loadJobs() {
-  try {
-    const data = await readFile(config.paths.cronFile, 'utf-8');
-    return JSON.parse(data).jobs || [];
-  } catch {
-    return [];
-  }
-}
-
-async function saveJobs(jobs) {
-  await writeFile(config.paths.cronFile, JSON.stringify({ jobs }, null, 2), 'utf-8');
-  if (cronRunner) cronRunner.reload();
-}
+import { listJobs, createJob, deleteJob } from '../db/crons.js';
+import { getTimezone } from '../db/settings.js';
+import { reloadCronJobs } from '../cron/runner.js';
 
 export function register(registry) {
   registry.register('manage_cron', {
     type: 'function',
     function: {
       name: 'manage_cron',
-      description: 'Create, remove, or list scheduled cron jobs. Jobs persist across restarts. Examples: add a job with expression "0 9 * * *" (daily at 9am), "*/30 * * * *" (every 30 min), "0 0 * * 1" (every Monday midnight). The prompt is what you will be asked to do when the job triggers.',
+      description:
+        'Schedule a future task for yourself, list scheduled tasks, or cancel one. ' +
+        'Use this when the user asks you to do something periodically (e.g. "every morning at 8 ask me how I slept") ' +
+        'or once at a specific time ("remind me at 7pm tonight"). ' +
+        'The delivery target (channel, chat, or web session) is determined automatically from the current conversation — ' +
+        'you cannot send a cron to a different conversation.\n' +
+        'For `add`: provide EITHER `expression` (recurring cron, e.g. "0 9 * * *") OR `run_at` (one-shot ISO timestamp, e.g. "2026-05-19T19:00:00Z"). ' +
+        'When the job fires you will be invoked with the `prompt` as the instruction.',
       parameters: {
         type: 'object',
         properties: {
           action: { type: 'string', enum: ['add', 'remove', 'list'], description: 'Action to perform' },
-          id: { type: 'string', description: 'Job ID (for remove)' },
-          expression: { type: 'string', description: 'Cron expression, e.g. "0 9 * * *" (for add)' },
-          description: { type: 'string', description: 'What this job does (for add)' },
-          prompt: { type: 'string', description: 'The prompt to send to the agent when triggered (for add)' },
-          notify_chat: { type: 'number', description: 'Telegram chat ID to send the result to (optional, for add)' },
+          id: { type: 'number', description: 'Job id (for remove)' },
+          expression: { type: 'string', description: 'Cron expression for recurring jobs, e.g. "0 9 * * *". Mutually exclusive with run_at.' },
+          run_at: { type: 'string', description: 'ISO timestamp for a one-shot job, e.g. "2026-05-19T19:00:00Z". Mutually exclusive with expression.' },
+          timezone: { type: 'string', description: 'IANA timezone (e.g. "Europe/Berlin"). Optional; defaults to the system timezone.' },
+          description: { type: 'string', description: 'Short human description of what this job does (optional)' },
+          prompt: { type: 'string', description: 'The instruction you want to receive when the job fires' },
         },
         required: ['action'],
       },
     },
-  }, async ({ action, id, expression, description, prompt, notify_chat }) => {
-    const jobs = await loadJobs();
+  }, async (args, context = {}) => {
+    const { action, id, expression, run_at, timezone, description, prompt } = args;
 
-    switch (action) {
-      case 'list':
-        return { jobs };
+    if (action === 'list') {
+      return { jobs: await listJobs() };
+    }
 
-      case 'add': {
-        if (!expression || !prompt) return { error: 'expression and prompt are required' };
-        const job = {
-          id: randomUUID().slice(0, 8),
-          expression,
+    if (action === 'remove') {
+      if (id == null) return { error: 'id is required' };
+      const ok = await deleteJob(id);
+      if (!ok) return { error: `Job ${id} not found` };
+      reloadCronJobs();
+      return { removed: id };
+    }
+
+    if (action === 'add') {
+      if (!prompt) return { error: 'prompt is required' };
+
+      const { agentId, channelId, chatId, sessionId } = context;
+      if (!agentId) return { error: 'no agent in calling context — cannot schedule' };
+      if (!channelId && !sessionId) {
+        return { error: 'no channel or session in calling context — cron has nowhere to deliver' };
+      }
+
+      const isTelegram = !!(channelId && chatId);
+      const tz = timezone || (await getTimezone());
+
+      try {
+        const job = await createJob({
+          agentId,
+          channelId: isTelegram ? channelId : null,
+          chatId: isTelegram ? chatId : null,
+          sessionId: isTelegram ? null : sessionId,
+          expression: expression || null,
+          runAt: run_at || null,
+          timezone: tz,
           description: description || '',
           prompt,
-          notifyChat: notify_chat || null,
-          enabled: true,
-          createdAt: new Date().toISOString(),
-        };
-        jobs.push(job);
-        await saveJobs(jobs);
+        });
+        reloadCronJobs();
         return { created: job };
+      } catch (err) {
+        return { error: err.message };
       }
-
-      case 'remove': {
-        if (!id) return { error: 'id is required' };
-        const idx = jobs.findIndex(j => j.id === id);
-        if (idx === -1) return { error: `Job ${id} not found` };
-        const removed = jobs.splice(idx, 1)[0];
-        await saveJobs(jobs);
-        return { removed };
-      }
-
-      default:
-        return { error: `Unknown action: ${action}` };
     }
+
+    return { error: `Unknown action: ${action}` };
   });
 }

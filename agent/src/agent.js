@@ -58,9 +58,16 @@ IMPORTANT rules for tool use:
   /**
    * Run the agent loop.
    * Returns { content, toolCalls } where toolCalls is an array of { name, args, result }
+   *
+   * When opts.triggerNote is set (cron-fired runs), no synthetic user message is
+   * appended; instead the trigger is added as a system-role turn after history.
+   * The caller is responsible for persisting only the assistant reply.
    */
   async run(userMessage, history = [], opts = {}) {
     const agentId = opts.agentId || null;
+    const channelId = opts.channelId ?? null;
+    const chatId = opts.chatId ?? null;
+    const sessionId = opts.sessionId ?? null;
     const systemPrompt = await this.#buildSystemPrompt(opts.systemPrompt, agentId);
     const mc = opts.modelConfig || {};
     if (!mc.model_id) {
@@ -74,37 +81,40 @@ IMPORTANT rules for tool use:
     const onEvent = opts.onEvent || null;
 
     let processedMessage = userMessage;
-    if (opts.audio) {
-      if (accepts.includes('audio')) {
-        processedMessage = processedMessage || 'What is said in this audio?';
-      } else {
-        if (onEvent) onEvent('status', 'Transcribing audio...');
-        const transcript = await transcribeAudio(opts.audio, opts.audioMime);
-        if (onEvent) onEvent('transcript', transcript);
-        processedMessage = processedMessage
-          ? `${processedMessage}\n\n[Voice message]: ${transcript}`
-          : transcript;
+    if (!opts.triggerNote) {
+      if (opts.audio) {
+        if (accepts.includes('audio')) {
+          processedMessage = processedMessage || 'What is said in this audio?';
+        } else {
+          if (onEvent) onEvent('status', 'Transcribing audio...');
+          const transcript = await transcribeAudio(opts.audio, opts.audioMime);
+          if (onEvent) onEvent('transcript', transcript);
+          processedMessage = processedMessage
+            ? `${processedMessage}\n\n[Voice message]: ${transcript}`
+            : transcript;
+        }
       }
-    }
 
-    if (!processedMessage && opts.images?.length) {
-      processedMessage = 'What do you see in this image?';
+      if (!processedMessage && opts.images?.length) {
+        processedMessage = 'What do you see in this image?';
+      }
     }
 
     const systemContent = opts.systemNote
       ? `${systemPrompt}\n\nNote: ${opts.systemNote}`
       : systemPrompt;
 
-    const userMsg = { role: 'user', content: processedMessage };
-    if (opts.images?.length && accepts.includes('image')) {
-      userMsg.images = opts.images;
-    }
+    const messages = [{ role: 'system', content: systemContent }, ...history];
 
-    const messages = [
-      { role: 'system', content: systemContent },
-      ...history,
-      userMsg,
-    ];
+    if (opts.triggerNote) {
+      messages.push({ role: 'system', content: opts.triggerNote });
+    } else {
+      const userMsg = { role: 'user', content: processedMessage };
+      if (opts.images?.length && accepts.includes('image')) {
+        userMsg.images = opts.images;
+      }
+      messages.push(userMsg);
+    }
 
     const tools = this.#registry.getDefinitions();
     const apiKey = mc.apiKey || null;
@@ -131,7 +141,7 @@ IMPORTANT rules for tool use:
         const result = await this.#registry.execute(
           call.function.name,
           call.function.arguments,
-          { agentId },
+          { agentId, channelId, chatId, sessionId },
         );
         collectedToolCalls.push({
           name: call.function.name,

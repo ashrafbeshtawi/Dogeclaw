@@ -3,12 +3,12 @@ import config from './config.js';
 import { shutdown as shutdownPools } from './db/pool.js';
 import { ToolRegistry } from './tools/index.js';
 import { Agent } from './agent.js';
-import { CronRunner } from './cron/runner.js';
+import { CronRunner, setActiveCronRunner } from './cron/runner.js';
 import { TelegramManager } from './channels/telegram.js';
 import { McpManager } from './mcp/client.js';
 import { registerMcpTools } from './tools/mcp.js';
 import { createWebServer, setTelegramManager } from './web/server.js';
-import { setCronRunner } from './tools/cron.js';
+import { importLegacyData } from './migrate/importLegacy.js';
 
 import { register as registerExec } from './tools/exec.js';
 import { register as registerFiles } from './tools/files.js';
@@ -22,7 +22,6 @@ async function main() {
 
   // Ensure workspace directories exist
   await mkdir(config.paths.files, { recursive: true });
-  await mkdir(config.paths.sessions, { recursive: true });
   await mkdir(config.paths.queues, { recursive: true });
   await mkdir(config.paths.logs, { recursive: true });
 
@@ -45,22 +44,30 @@ async function main() {
   // Agent
   const agent = new Agent(registry);
 
-  // Telegram
+  // Telegram + cron runner. Telegram is constructed up-front so the cron
+  // dispatcher can push messages back through it.
   const telegram = new TelegramManager(agent);
   setTelegramManager(telegram);
 
-  // Cron runner
-  const cronRunner = new CronRunner(agent, (chatId, text) => telegram.sendMessage(chatId, text));
-  setCronRunner(cronRunner);
-  await cronRunner.reload();
+  const cronRunner = new CronRunner(agent, telegram);
+  setActiveCronRunner(cronRunner);
 
   // Web server
   const app = createWebServer(agent);
 
-  // Start Telegram (loads channels from DB)
+  // Start Telegram (loads channels from DB; needs the express app for webhook routes)
   if (config.database.agentUrl) {
     await telegram.start(app);
   }
+
+  // One-shot import of pre-DB cron.json + session JSON files. Safe to call
+  // every boot — no-ops once the target tables are populated.
+  if (config.database.agentUrl) {
+    await importLegacyData();
+  }
+
+  // Now that channels + legacy data are loaded, start the cron runner.
+  await cronRunner.start();
 
   // Start HTTP server
   app.listen(config.web.port, '0.0.0.0', () => {

@@ -198,6 +198,20 @@
         }
 
         async function deleteSession(id) {
+            try {
+                var cr = await fetch('/api/sessions/' + id + '/crons');
+                var data = await cr.json();
+                var jobs = data.jobs || [];
+                if (jobs.length > 0) {
+                    var msg = 'This session has ' + jobs.length + ' scheduled job(s) attached:\n'
+                        + jobs.map(function(j){
+                            var s = j.expression ? 'cron ' + j.expression : 'at ' + new Date(j.run_at).toISOString();
+                            return '  #' + j.id + ' (' + s + ')' + (j.description ? ' — ' + j.description : '');
+                        }).join('\n')
+                        + '\n\nDeleting the session will also delete these jobs. Continue?';
+                    if (!confirm(msg)) return;
+                }
+            } catch {}
             await fetch('/api/sessions/' + id, { method: 'DELETE' });
             if (sessionId === id) newSession();
             else loadSessions();

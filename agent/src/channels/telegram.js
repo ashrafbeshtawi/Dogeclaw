@@ -2,17 +2,24 @@ import TelegramBot from 'node-telegram-bot-api';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { agentQuery as query } from '../db/pool.js';
+import {
+  loadSession,
+  ensureSession,
+  appendMessage,
+  resetSession,
+  findActiveTelegramSession,
+} from '../db/sessions.js';
+import { listJobs, getJob, deleteJob } from '../db/crons.js';
+import { reloadCronJobs } from '../cron/runner.js';
+import { withSessionLock } from '../lib/sessionLock.js';
 import config from '../config.js';
-// transcribeAudio imported dynamically where needed
 
 const MAX_MSG_LEN = 4096;
 
 export class TelegramManager {
   #agent;
   #expressApp;
-  #bots = new Map();
-  #timers = new Map();
-  #chatSessions = new Map(); // "channelName-chatId" -> current session ID
+  #bots = new Map(); // channel.id -> TelegramBot
 
   constructor(agent) {
     this.#agent = agent;
@@ -24,15 +31,11 @@ export class TelegramManager {
   }
 
   async reload() {
-    // Stop existing bots
     for (const bot of this.#bots.values()) {
       try { await bot.stopPolling(); } catch {}
     }
     this.#bots.clear();
-    for (const timer of this.#timers.values()) clearInterval(timer);
-    this.#timers.clear();
 
-    // Load channels from DB
     let channels = [];
     try {
       const result = await query(`
@@ -68,7 +71,6 @@ export class TelegramManager {
 
     const bot = new TelegramBot(botToken, { polling: isPolling });
 
-    // Log polling errors
     bot.on('polling_error', (err) => {
       console.error(`[telegram] ${channel.name} polling error: ${err.message}`);
     });
@@ -77,7 +79,6 @@ export class TelegramManager {
       console.error(`[telegram] ${channel.name} error: ${err.message}`);
     });
 
-    // Webhook mode
     if (!isPolling && config.telegram.webhookUrl && this.#expressApp) {
       const path = `/webhook/${channel.name}`;
       const url = `${config.telegram.webhookUrl}${path}`;
@@ -94,30 +95,29 @@ export class TelegramManager {
     bot.on('message', async (msg) => {
       console.log(`[telegram] ${channel.name}: message from ${msg.from.id}: ${(msg.text || '(media)').slice(0, 50)}`);
 
-      // Check allowed users
       if (allowedUsers.length > 0 && !allowedUsers.includes(msg.from.id)) {
         console.log(`[telegram] ${channel.name}: user ${msg.from.id} not in allowlist`);
         return;
       }
 
       if (msg.text === '/start') {
-        return bot.sendMessage(msg.chat.id, `Hi! I'm DogeClaw (${channel.agent_name}). Commands:\n/new - Start a new chat\n/reset - Clear current chat`);
+        return bot.sendMessage(msg.chat.id, `Hi! I'm DogeClaw (${channel.agent_name}). Commands:\n/new - Start a new chat\n/reset - Clear current chat\n/cron - List scheduled jobs (use /cron rm <id> to delete)`);
       }
       if (msg.text === '/reset') {
-        const sid = `tg-${channel.name}-${msg.chat.id}`;
-        await saveSession(sid, { messages: [], agentId: channel.agent_id, agentName: channel.agent_name, channel: channel.name, source: 'telegram' });
+        const sid = await this.#resolveSessionId(channel, msg.chat.id);
+        await ensureSession(sid, this.#sessionMeta(channel, msg.chat.id));
+        await resetSession(sid);
         return bot.sendMessage(msg.chat.id, 'Conversation reset.');
       }
       if (msg.text === '/new') {
-        // Create a new session with a unique suffix
         const newSid = `tg-${channel.name}-${msg.chat.id}-${Date.now()}`;
-        this.#chatSessions = this.#chatSessions || new Map();
-        this.#chatSessions.set(`${channel.name}-${msg.chat.id}`, newSid);
-        await saveSession(newSid, { messages: [], agentId: channel.agent_id, agentName: channel.agent_name, channel: channel.name, source: 'telegram' });
+        await ensureSession(newSid, this.#sessionMeta(channel, msg.chat.id));
         return bot.sendMessage(msg.chat.id, 'New chat started. Previous chat is still visible in the web UI.');
       }
+      if (msg.text === '/cron' || msg.text?.startsWith('/cron ')) {
+        return this.#handleCronCommand(bot, msg, channel);
+      }
 
-      // Handle media
       let images = null;
       let textContent = msg.text || '';
 
@@ -144,9 +144,7 @@ export class TelegramManager {
           bot.sendChatAction(msg.chat.id, 'typing').catch(() => {});
           const audioB64 = await this.#downloadFileBase64(bot, fileId);
           textContent = msg.caption || '';
-          // Pass audio to handleMessage — agent decides whether to transcribe or forward
           if (channel.response_mode === 'periodic') {
-            // For periodic, transcribe now since we can't pass binary in queue
             const { transcribeAudio: ta } = await import('../audio.js');
             textContent = await ta(audioB64, mime);
             await this.#enqueue(channel.name, msg, textContent, images);
@@ -168,17 +166,17 @@ export class TelegramManager {
         return;
       }
 
-      // Immediate mode
       await this.#handleMessage(bot, msg.chat.id, textContent, images, channel);
     });
 
     this.#bots.set(channel.id, bot);
 
-    // Periodic timer
     if (channel.response_mode === 'periodic' && channel.response_interval) {
       const ms = parseInterval(channel.response_interval);
       if (ms > 0) {
-        this.#timers.set(channel.id, setInterval(() => this.#processQueue(channel), ms));
+        const timer = setInterval(() => this.#processQueue(channel), ms);
+        // Track the timer alongside the bot so stop() can clear it.
+        bot.__periodicTimer = timer;
         console.log(`[telegram] ${channel.name}: periodic every ${channel.response_interval}`);
       }
     }
@@ -192,13 +190,27 @@ export class TelegramManager {
     return buffer.toString('base64');
   }
 
+  #sessionMeta(channel, chatId) {
+    return {
+      agentId: channel.agent_id,
+      agentName: channel.agent_name,
+      source: 'telegram',
+      channelId: channel.id,
+      channelName: channel.name,
+      chatId: String(chatId),
+    };
+  }
+
+  async #resolveSessionId(channel, chatId) {
+    const existing = await findActiveTelegramSession(channel.id, chatId);
+    return existing || `tg-${channel.name}-${chatId}`;
+  }
+
   async #handleMessage(bot, chatId, text, images, channel, audioB64, audioMime) {
     bot.sendChatAction(chatId, 'typing').catch(() => {});
 
-    const sessionKey = `${channel.name}-${chatId}`;
-    const sessionId = this.#chatSessions.get(sessionKey) || `tg-${channel.name}-${chatId}`;
-    const sessionData = await loadSession(sessionId);
-    const history = sessionData.messages || [];
+    const sessionId = await this.#resolveSessionId(channel, chatId);
+    await ensureSession(sessionId, this.#sessionMeta(channel, chatId));
 
     const modelConfig = {
       base_url: channel.base_url,
@@ -209,35 +221,77 @@ export class TelegramManager {
       apiKey: channel.api_key,
     };
 
-    try {
-      const result = await this.#agent.run(text, history, {
-        agentId: channel.agent_id,
-        systemPrompt: channel?.system_prompt,
-        modelConfig,
-        images: images || undefined,
-        audio: audioB64 || undefined,
-        audioMime: audioMime || undefined,
-      });
-      history.push({ role: 'user', content: text });
-      history.push({
-        role: 'assistant', content: result.content,
-        ...(result.toolCalls?.length ? { toolCalls: result.toolCalls } : {}),
-      });
-      while (history.length > 40) history.shift();
+    await withSessionLock(sessionId, async () => {
+      try {
+        const { messages: history } = await loadSession(sessionId);
 
-      await saveSession(sessionId, {
-        messages: history,
-        agentId: channel.agent_id,
-        agentName: channel.agent_name,
-        channel: channel.name,
-        source: 'telegram',
-      });
+        const result = await this.#agent.run(text, history, {
+          agentId: channel.agent_id,
+          channelId: channel.id,
+          chatId: String(chatId),
+          sessionId,
+          systemPrompt: channel?.system_prompt,
+          modelConfig,
+          images: images || undefined,
+          audio: audioB64 || undefined,
+          audioMime: audioMime || undefined,
+        });
 
-      await sendLong(bot, chatId, result.content);
-    } catch (err) {
-      console.error(`[telegram] Error handling message: ${err.message}`);
-      await bot.sendMessage(chatId, `Error: ${err.message}`).catch(() => {});
+        await appendMessage(sessionId, {
+          role: 'user',
+          content: text || '',
+          hasImage: !!images?.length,
+          hasAudio: !!audioB64,
+        });
+        await appendMessage(sessionId, {
+          role: 'assistant',
+          content: result.content,
+          toolCalls: result.toolCalls?.length ? result.toolCalls : null,
+        });
+
+        await sendLong(bot, chatId, result.content);
+      } catch (err) {
+        console.error(`[telegram] Error handling message: ${err.message}`);
+        await bot.sendMessage(chatId, `Error: ${err.message}`).catch(() => {});
+      }
+    });
+  }
+
+  async #handleCronCommand(bot, msg, channel) {
+    const parts = msg.text.trim().split(/\s+/);
+    const chatId = String(msg.chat.id);
+
+    if (parts.length === 1) {
+      const all = await listJobs();
+      const mine = all.filter(j => j.channel_id === channel.id && j.chat_id === chatId);
+      if (!mine.length) {
+        return bot.sendMessage(msg.chat.id, 'No scheduled jobs for this chat.');
+      }
+      const lines = mine.map(j => {
+        const sched = j.expression ? `cron \`${j.expression}\`` : `at ${new Date(j.run_at).toISOString()}`;
+        const last = j.last_run_at
+          ? ` (last: ${j.last_status} ${new Date(j.last_run_at).toISOString()})`
+          : '';
+        const desc = j.description ? ` — ${j.description}` : '';
+        return `#${j.id}: ${sched}${desc}${last}\n  prompt: ${(j.prompt || '').slice(0, 80)}`;
+      });
+      return bot.sendMessage(msg.chat.id, `Scheduled jobs:\n${lines.join('\n\n')}`);
     }
+
+    if (parts[1] === 'rm' && parts[2]) {
+      const id = parseInt(parts[2], 10);
+      if (Number.isNaN(id)) return bot.sendMessage(msg.chat.id, 'Usage: /cron rm <id>');
+      const job = await getJob(id);
+      if (!job) return bot.sendMessage(msg.chat.id, `Job #${id} not found.`);
+      if (job.channel_id !== channel.id || job.chat_id !== chatId) {
+        return bot.sendMessage(msg.chat.id, `Job #${id} is not in this chat.`);
+      }
+      await deleteJob(id);
+      await reloadCronJobs();
+      return bot.sendMessage(msg.chat.id, `Removed job #${id}.`);
+    }
+
+    return bot.sendMessage(msg.chat.id, 'Usage:\n/cron — list jobs in this chat\n/cron rm <id> — delete a job');
   }
 
   async #enqueue(channelName, msg, text, images) {
@@ -269,6 +323,8 @@ export class TelegramManager {
       try {
         const result = await this.#agent.run(combined, [], {
           agentId: channel.agent_id,
+          channelId: channel.id,
+          chatId: String(chatId),
           systemPrompt: channel.system_prompt,
           modelConfig: { base_url: channel.base_url, model_id: channel.model_id, think: channel.think, accepts: channel.accepts || ['text'], provider: channel.provider || 'ollama', apiKey: channel.api_key },
           systemNote: `Processing ${messages.length} queued message(s)`,
@@ -280,20 +336,23 @@ export class TelegramManager {
     }
   }
 
-  async sendMessage(chatId, text) {
-    const bot = this.#bots.values().next().value;
-    if (bot) await sendLong(bot, chatId, text);
+  async sendMessageVia(channelId, chatId, text) {
+    const bot = this.#bots.get(channelId);
+    if (!bot) throw new Error(`no telegram bot for channel ${channelId}`);
+    await sendLong(bot, chatId, text);
   }
 
   stop() {
     for (const bot of this.#bots.values()) {
       try { bot.stopPolling(); } catch {}
+      if (bot.__periodicTimer) clearInterval(bot.__periodicTimer);
     }
-    for (const timer of this.#timers.values()) clearInterval(timer);
+    this.#bots.clear();
   }
 }
 
 async function sendLong(bot, chatId, text) {
+  if (!text) return;
   if (text.length <= MAX_MSG_LEN) return bot.sendMessage(chatId, text);
   let remaining = text;
   while (remaining.length > 0) {
@@ -305,19 +364,6 @@ async function sendLong(bot, chatId, text) {
     await bot.sendMessage(chatId, chunk);
     remaining = remaining.slice(chunk.length);
   }
-}
-
-async function loadSession(id) {
-  try {
-    const file = join(config.paths.sessions, `${id}.json`);
-    return JSON.parse(await readFile(file, 'utf-8'));
-  } catch { return { messages: [] }; }
-}
-
-async function saveSession(id, data) {
-  await mkdir(config.paths.sessions, { recursive: true });
-  const file = join(config.paths.sessions, `${id}.json`);
-  await writeFile(file, JSON.stringify(data), 'utf-8');
 }
 
 function parseInterval(str) {
