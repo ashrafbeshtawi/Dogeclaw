@@ -1,16 +1,89 @@
-name: Publish images
+name: CI / Publish
+
+# Tag strategy (Watchtower-friendly):
+#   push to main          → :main only (no :latest, no :X tag — main is bleeding-edge)
+#   push tag v1.2.3       → :1.2.3, :1.2, :1, :latest        (stable release)
+#   push tag v2.0.0-rc.1  → :2.0.0-rc.1 only                 (prerelease; safe to skip)
+#   push tag v2.0.0-bk    → :2.0.0-bk only                   (breaking; do NOT move :latest)
+#
+# Anything with a `-suffix` is treated as a prerelease and only its exact
+# version is published. Watchtower configured to track `:latest`, `:1`, or
+# `:1.2` will not auto-pull prereleases.
 
 on:
   push:
     branches: [main]
     tags: ['v*']
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: read
   packages: write
 
 jobs:
+  test:
+    name: Playwright
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: tests/package-lock.json
+
+      - name: Install test dependencies
+        working-directory: ./tests
+        run: npm ci
+
+      - name: Install Chromium for Playwright
+        working-directory: ./tests
+        run: npx playwright install --with-deps chromium
+
+      - name: Bring up the stack
+        run: docker compose up -d --build
+
+      - name: Wait for the agent to come up
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:3000/login > /dev/null; then
+              echo "agent ready after ${i} attempts"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::agent never came up"
+          docker compose ps
+          docker compose logs --no-color
+          exit 1
+
+      - name: Run Playwright tests
+        working-directory: ./tests
+        run: npx playwright test
+
+      - name: Upload Playwright report
+        if: always() && hashFiles('tests/playwright-report/**') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ github.run_id }}
+          path: tests/playwright-report/
+          retention-days: 7
+
+      - name: Stack logs on failure
+        if: failure()
+        run: docker compose logs --no-color
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
+
   publish:
+    name: Build & push ${{ matrix.image }}
+    if: github.event_name == 'push'
+    needs: test
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -43,11 +116,13 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
+          # See header for the policy summary.
           tags: |
             type=ref,event=branch
             type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ !contains(github.ref, '-') }}
+            type=semver,pattern={{major}},enable=${{ !contains(github.ref, '-') }}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-') }}
 
       - name: Build and push
         uses: docker/build-push-action@v6
