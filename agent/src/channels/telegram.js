@@ -1,6 +1,4 @@
 import TelegramBot from 'node-telegram-bot-api';
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
-import { join } from 'node:path';
 import { agentQuery as query } from '../db/pool.js';
 import {
   loadSession,
@@ -10,6 +8,7 @@ import {
   findActiveTelegramSession,
 } from '../db/sessions.js';
 import { listJobs, getJob, deleteJob } from '../db/crons.js';
+import { enqueue as enqueueMessage, claimBatch } from '../db/queue.js';
 import { reloadCronJobs } from '../cron/runner.js';
 import { withSessionLock } from '../lib/sessionLock.js';
 import config from '../config.js';
@@ -147,7 +146,7 @@ export class TelegramManager {
           if (channel.response_mode === 'periodic') {
             const { transcribeAudio: ta } = await import('../audio.js');
             textContent = await ta(audioB64, mime);
-            await this.#enqueue(channel.name, msg, textContent, images);
+            await this.#enqueue(channel.id, msg, textContent, images);
             return;
           }
           await this.#handleMessage(bot, msg.chat.id, textContent, images, channel, audioB64, mime);
@@ -162,7 +161,7 @@ export class TelegramManager {
       if (!textContent && !images) return;
 
       if (channel.response_mode === 'periodic') {
-        await this.#enqueue(channel.name, msg, textContent, images);
+        await this.#enqueue(channel.id, msg, textContent, images);
         return;
       }
 
@@ -294,28 +293,26 @@ export class TelegramManager {
     return bot.sendMessage(msg.chat.id, 'Usage:\n/cron — list jobs in this chat\n/cron rm <id> — delete a job');
   }
 
-  async #enqueue(channelName, msg, text, images) {
-    const queueFile = join(config.paths.queues, `${channelName}.json`);
-    let queue = [];
-    try { queue = JSON.parse(await readFile(queueFile, 'utf-8')); } catch {}
-    queue.push({ chatId: msg.chat.id, text, images, from: msg.from.id, ts: Date.now() });
-    await mkdir(config.paths.queues, { recursive: true });
-    await writeFile(queueFile, JSON.stringify(queue), 'utf-8');
+  async #enqueue(channelId, msg, text, images) {
+    await enqueueMessage(channelId, {
+      chatId: msg.chat.id,
+      userId: msg.from?.id,
+      text,
+      images,
+    });
   }
 
   async #processQueue(channel) {
     const bot = this.#bots.get(channel.id);
     if (!bot) return;
-    const queueFile = join(config.paths.queues, `${channel.name}.json`);
-    let queue = [];
-    try { queue = JSON.parse(await readFile(queueFile, 'utf-8')); } catch { return; }
-    if (!queue.length) return;
-    await writeFile(queueFile, '[]', 'utf-8');
+
+    const items = await claimBatch(channel.id);
+    if (!items.length) return;
 
     const byChat = new Map();
-    for (const item of queue) {
-      if (!byChat.has(item.chatId)) byChat.set(item.chatId, []);
-      byChat.get(item.chatId).push(item);
+    for (const item of items) {
+      if (!byChat.has(item.chat_id)) byChat.set(item.chat_id, []);
+      byChat.get(item.chat_id).push(item);
     }
 
     for (const [chatId, messages] of byChat) {
