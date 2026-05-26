@@ -22,7 +22,6 @@ async function main() {
 
   // Ensure workspace directories exist
   await mkdir(config.paths.files, { recursive: true });
-  await mkdir(config.paths.queues, { recursive: true });
   await mkdir(config.paths.logs, { recursive: true });
 
   // DB migrations are run by the Flyway service before this container starts.

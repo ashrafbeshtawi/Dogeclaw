@@ -11,10 +11,12 @@ import config from '../config.js';
 import { adminQuery } from '../db/pool.js';
 import { createJob } from '../db/crons.js';
 import { ensureSession, appendMessage } from '../db/sessions.js';
+import { enqueue } from '../db/queue.js';
 
 export async function importLegacyData() {
   await importCron().catch(err => console.error('[import] cron:', err.message));
   await importSessions().catch(err => console.error('[import] sessions:', err.message));
+  await importQueues().catch(err => console.error('[import] queues:', err.message));
 }
 
 async function importCron() {
@@ -146,5 +148,60 @@ async function importSessions() {
     await rename(dir, `${dir}.imported`);
   } catch (err) {
     console.error(`[import] couldn't rename sessions dir: ${err.message}`);
+  }
+}
+
+async function importQueues() {
+  const dir = config.paths.queues;
+  let entries;
+  try { entries = await readdir(dir); }
+  catch { return; }
+  const files = entries.filter(f => f.endsWith('.json'));
+  if (!files.length) return;
+
+  const countRes = await adminQuery('SELECT COUNT(*)::int AS n FROM queued_messages');
+  if (countRes.rows[0].n > 0) {
+    console.log('[import] queued_messages already populated, leaving queue files in place');
+    return;
+  }
+
+  const chRes = await adminQuery(`SELECT id, name FROM channels`);
+  const channelByName = new Map(chRes.rows.map(c => [c.name, c]));
+
+  let imported = 0;
+  let skipped = 0;
+  for (const f of files) {
+    const channelName = f.replace(/\.json$/, '');
+    const channel = channelByName.get(channelName);
+    if (!channel) {
+      console.warn(`[import] queue ${f}: channel "${channelName}" not found`);
+      skipped++;
+      continue;
+    }
+    try {
+      const raw = await readFile(join(dir, f), 'utf-8');
+      const items = JSON.parse(raw);
+      if (!Array.isArray(items)) { skipped++; continue; }
+      for (const it of items) {
+        if (it.chatId == null) { skipped++; continue; }
+        await enqueue(channel.id, {
+          chatId: it.chatId,
+          userId: it.from,
+          text: it.text || '',
+          images: it.images || null,
+        });
+        imported++;
+      }
+    } catch (err) {
+      console.error(`[import] queue ${f}: ${err.message}`);
+      skipped++;
+    }
+  }
+  console.log(`[import] queues: imported ${imported}, skipped ${skipped}`);
+
+  try {
+    await rename(dir, `${dir}.imported`);
+  } catch (err) {
+    console.error(`[import] couldn't rename queues dir: ${err.message}`);
   }
 }
