@@ -5,8 +5,11 @@
 const { execSync } = require('node:child_process');
 
 const CONTAINER = 'dogeclaw-postgres';
-const USER = 'dogeclaw';
-const DB = 'dogeclaw';
+// Use the bootstrap superuser, not the restricted `dogeclaw` role, so the
+// helper can INSERT/DELETE freely. Tests don't need (or want) the agent
+// role's grants applied to their seed/cleanup statements.
+const USER = process.env.POSTGRES_USER || 'admin';
+const DB = process.env.POSTGRES_DB || 'dogeclaw';
 
 function psql(sql) {
   const out = execSync(

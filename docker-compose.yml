@@ -11,20 +11,24 @@ services:
     image: postgres:16-alpine
     container_name: dogeclaw-postgres
     environment:
-      - POSTGRES_USER=${POSTGRES_USER:-dogeclaw}
+      # Must NOT default to `dogeclaw` — that name is owned by the restricted
+      # role the migrations create; reusing it makes the Postgres bootstrap
+      # clobber the restricted role into a superuser and breaks agent-pool
+      # auth. See .env.example for the matching comment.
+      - POSTGRES_USER=${POSTGRES_USER:-admin}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-changeme}
       - POSTGRES_DB=${POSTGRES_DB:-dogeclaw}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dogeclaw}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-admin}"]
       interval: 5s
       timeout: 5s
       retries: 5
     ports:
       # Exposed on a non-standard host port to avoid colliding with other
       # local postgres instances. Connect from the host with:
-      #   psql -h localhost -p ${POSTGRES_HOST_PORT:-5434} -U dogeclaw
+      #   psql -h localhost -p ${POSTGRES_HOST_PORT:-5434} -U admin
       - "${POSTGRES_HOST_PORT:-5434}:5432"
     networks:
       - dogeclaw
@@ -34,7 +38,7 @@ services:
     container_name: dogeclaw-migrations
     environment:
       - FLYWAY_URL=jdbc:postgresql://postgres:5432/${POSTGRES_DB:-dogeclaw}
-      - FLYWAY_USER=${POSTGRES_USER:-dogeclaw}
+      - FLYWAY_USER=${POSTGRES_USER:-admin}
       - FLYWAY_PASSWORD=${POSTGRES_PASSWORD:-changeme}
     depends_on:
       postgres:
@@ -51,7 +55,7 @@ services:
       - DOGECLAW_WEB_USER=${DOGECLAW_WEB_USER:-admin}
       - DOGECLAW_WEB_PASSWORD=${DOGECLAW_WEB_PASSWORD:-changeme}
       - DOGECLAW_WEB_SECRET=${DOGECLAW_WEB_SECRET:-dogeclaw-change-me}
-      - DOGECLAW_ADMIN_DATABASE_URL=postgres://${POSTGRES_USER:-dogeclaw}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/${POSTGRES_DB:-dogeclaw}
+      - DOGECLAW_ADMIN_DATABASE_URL=postgres://${POSTGRES_USER:-admin}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/${POSTGRES_DB:-dogeclaw}
       - DOGECLAW_DATABASE_URL=postgres://dogeclaw:dogeclaw-agent-pw@postgres:5432/${POSTGRES_DB:-dogeclaw}
       - DOGECLAW_OLLAMA_URL=${DOGECLAW_OLLAMA_URL:-}
       - DOGECLAW_TELEGRAM_MODE=${DOGECLAW_TELEGRAM_MODE:-polling}

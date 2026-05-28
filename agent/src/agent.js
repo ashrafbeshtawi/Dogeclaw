@@ -144,6 +144,18 @@ IMPORTANT rules for tool use:
       }
 
       if (!response.tool_calls || response.tool_calls.length === 0) {
+        // Gemini's thinking mode can return a turn that contains only a
+        // `thoughtSignature` part — no text, no functionCall. The model is
+        // not done; it expects us to feed the signature back and ask for the
+        // next step. Treating it as "done" surfaces a bare "(no response)"
+        // and discards the model's reasoning state. Detect this and loop.
+        const hasThoughtOnly = !response.content
+          && response._geminiParts?.some(p => p.thoughtSignature)
+          && !response._geminiParts.some(p => p.text || p.functionCall);
+        if (hasThoughtOnly) {
+          messages.push(response);
+          continue;
+        }
         return { content: response.content || '(no response)', toolCalls: collectedToolCalls };
       }
 

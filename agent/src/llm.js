@@ -183,9 +183,27 @@ function parseGeminiResponse(candidate) {
     }
   }
   const result = { role: 'assistant', content, tool_calls: toolCalls.length ? toolCalls : undefined };
-  // Preserve raw parts including thoughtSignature for Gemini 3+ models
-  if (toolCalls.length) result._geminiParts = rawParts;
+  // Preserve raw parts (including thoughtSignature) on every Gemini response,
+  // not only when functionCall is present. This lets the next turn pass the
+  // signature back so the model can resume its internal reasoning — without
+  // this, an empty turn whose only parts were `thoughtSignature` was being
+  // surfaced as `(no response)` and the model lost its state.
+  if (rawParts.length) result._geminiParts = rawParts;
+  // Surface finishReason so callers (and the agent log) can tell why an
+  // empty candidate came back: STOP / MAX_TOKENS / SAFETY / RECITATION /
+  // PROHIBITED_CONTENT / LANGUAGE / SPII / OTHER.
+  if (candidate?.finishReason) result._finishReason = candidate.finishReason;
   return result;
+}
+
+function logGeminiEmpty(response, where) {
+  if (response.tool_calls?.length) return;
+  if (response.content && response.content.trim()) return;
+  const reason = response._finishReason || 'unknown';
+  const partKinds = (response._geminiParts || []).map(p =>
+    p.text ? 'text' : p.functionCall ? 'fn' : p.thoughtSignature ? 'thought' : 'other'
+  ).join(',') || 'none';
+  console.warn(`[llm] Gemini ${where} returned empty turn (finishReason=${reason}, parts=[${partKinds}])`);
 }
 
 async function chatGoogle(messages, tools, opts) {
@@ -202,7 +220,9 @@ async function chatGoogle(messages, tools, opts) {
   if (!res.ok) throw new Error(`Google ${res.status}: ${(await res.text()).slice(0, 200)}`);
 
   const data = await res.json();
-  return parseGeminiResponse(data.candidates?.[0]);
+  const parsed = parseGeminiResponse(data.candidates?.[0]);
+  logGeminiEmpty(parsed, 'non-stream');
+  return parsed;
 }
 
 async function chatStreamGoogle(messages, tools, opts, onEvent) {
@@ -221,11 +241,14 @@ async function chatStreamGoogle(messages, tools, opts, onEvent) {
   let fullContent = '';
   const toolCalls = [];
   const allRawParts = [];
+  let finishReason = null;
 
   for await (const line of readLines(res)) {
     if (!line.startsWith('data: ')) continue;
     let chunk; try { chunk = JSON.parse(line.slice(6)); } catch { continue; }
-    const parts = chunk.candidates?.[0]?.content?.parts || [];
+    const candidate = chunk.candidates?.[0];
+    if (candidate?.finishReason) finishReason = candidate.finishReason;
+    const parts = candidate?.content?.parts || [];
     for (const part of parts) {
       allRawParts.push(part);
       if (part.text) { fullContent += part.text; onEvent?.('content', part.text); }
@@ -236,7 +259,10 @@ async function chatStreamGoogle(messages, tools, opts, onEvent) {
   }
 
   const result = { role: 'assistant', content: fullContent, tool_calls: toolCalls.length ? toolCalls : undefined };
-  if (toolCalls.length) result._geminiParts = allRawParts;
+  // Always preserve raw parts so thoughtSignature carries to the next turn.
+  if (allRawParts.length) result._geminiParts = allRawParts;
+  if (finishReason) result._finishReason = finishReason;
+  logGeminiEmpty(result, 'stream');
   return result;
 }
 
