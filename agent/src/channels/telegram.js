@@ -144,26 +144,32 @@ export class TelegramManager {
           const audioB64 = await this.#downloadFileBase64(bot, fileId);
           textContent = msg.caption || '';
 
-          // Transcribe upfront in BOTH modes so we get a single audit trail
-          // (one event_logs row per voice message) and so audio-capable models
-          // and non-audio models share the same logged transcript that the
-          // admin UI links back to the session message.
-          const { transcribeAndLog } = await import('../audio.js');
-          const sessionId = await this.#resolveSessionId(channel, msg.chat.id);
-          const tr = await transcribeAndLog(audioB64, mime, {
-            refId: sessionId,
-            meta: {
-              channel_id: channel.id,
-              channel_name: channel.name,
-              chat_id: String(msg.chat.id),
-              telegram_message_id: msg.message_id,
-              session_id: sessionId,
-            },
-          });
-          const transcript = tr.text;
-          const transcriptionEventId = tr.eventLogId;
+          const modelAcceptsAudio = Array.isArray(channel.accepts) && channel.accepts.includes('audio');
+          const isPeriodic = channel.response_mode === 'periodic';
 
-          if (channel.response_mode === 'periodic') {
+          // Skip Whisper when the model can ingest audio directly — the LLM
+          // will hear the original. Periodic mode still needs a transcript
+          // because the queue is text-only (we lose the audio crossing it).
+          let transcript = null;
+          let transcriptionEventId = null;
+          if (!modelAcceptsAudio || isPeriodic) {
+            const { transcribeAndLog } = await import('../audio.js');
+            const sessionId = await this.#resolveSessionId(channel, msg.chat.id);
+            const tr = await transcribeAndLog(audioB64, mime, {
+              refId: sessionId,
+              meta: {
+                channel_id: channel.id,
+                channel_name: channel.name,
+                chat_id: String(msg.chat.id),
+                telegram_message_id: msg.message_id,
+                session_id: sessionId,
+              },
+            });
+            transcript = tr.text;
+            transcriptionEventId = tr.eventLogId;
+          }
+
+          if (isPeriodic) {
             await this.#enqueue(channel.id, msg, transcript, images);
             return;
           }
