@@ -18,7 +18,15 @@ const MAX_MSG_LEN = 4096;
 export class TelegramManager {
   #agent;
   #expressApp;
-  #bots = new Map(); // channel.id -> TelegramBot
+  #bots = new Map();         // channel.id -> TelegramBot
+  // Single source of truth for channel/agent/model config keyed by channel.id.
+  // The bot's message handler closure looks this up on every message so that
+  // mutating the agent (e.g. swapping its model in the admin UI) takes effect
+  // immediately — the captured `channel` parameter is just an initial seed.
+  // Without this, `node-telegram-bot-api`'s `stopPolling()` not fully halting
+  // an in-flight long poll meant the OLD bot's handler could fire against
+  // stale Gemini config even after a reload pointed the agent at DeepSeek.
+  #channelById = new Map();  // channel.id -> joined channel row
 
   constructor(agent) {
     this.#agent = agent;
@@ -29,12 +37,15 @@ export class TelegramManager {
     await this.reload();
   }
 
-  async reload() {
-    for (const bot of this.#bots.values()) {
-      try { await bot.stopPolling(); } catch {}
-    }
-    this.#bots.clear();
+  // Returns the current joined channel config the manager has for `id`,
+  // or null if no bot is registered for it. Used by tests / debug endpoints
+  // to verify reload picked up model changes.
+  getChannelView(id) {
+    const c = this.#channelById.get(Number(id));
+    return c ? { ...c } : null;
+  }
 
+  async reload() {
     let channels = [];
     try {
       const result = await query(`
@@ -51,13 +62,44 @@ export class TelegramManager {
       return;
     }
 
+    // Refresh the channel-by-id map FIRST. Any in-flight handler from an
+    // old bot will pick up the new config on its next message lookup,
+    // even before we've finished stopping/restarting bots.
+    const freshById = new Map(channels.map(c => [c.id, c]));
+    this.#channelById = freshById;
+
+    // Stop bots whose channel is gone or whose bot token changed.
+    for (const [id, bot] of [...this.#bots]) {
+      const fresh = freshById.get(id);
+      if (!fresh || fresh.config?.token !== bot.__channelToken) {
+        try { await bot.stopPolling(); } catch {}
+        if (bot.__periodicTimer) clearInterval(bot.__periodicTimer);
+        this.#bots.delete(id);
+      }
+    }
+
     if (channels.length === 0) {
       console.log('[telegram] No enabled channels');
       return;
     }
 
+    // Start bots for channels that don't have one yet. Existing bots whose
+    // token is unchanged keep running — their message handlers will look up
+    // the fresh config from #channelById on the next message.
     for (const channel of channels) {
-      await this.#startBot(channel);
+      if (!this.#bots.has(channel.id)) {
+        await this.#startBot(channel);
+      } else {
+        // Reset the periodic timer if its interval changed, so the new
+        // cadence takes effect without restarting the bot itself.
+        const existing = this.#bots.get(channel.id);
+        if (existing.__periodicInterval !== channel.response_interval) {
+          if (existing.__periodicTimer) clearInterval(existing.__periodicTimer);
+          existing.__periodicTimer = null;
+          existing.__periodicInterval = null;
+          this.#armPeriodicTimer(existing, channel);
+        }
+      }
     }
   }
 
@@ -65,17 +107,20 @@ export class TelegramManager {
     const botToken = channel.config?.token;
     if (!botToken) { console.error(`[telegram] ${channel.name}: no token in config`); return; }
 
-    const allowedUsers = channel.config?.allowed_users || [];
+    const channelId = channel.id;
     const isPolling = config.telegram.mode === 'polling';
 
     const bot = new TelegramBot(botToken, { polling: isPolling });
+    bot.__channelToken = botToken; // remembered by reload() to detect token rotations
 
     bot.on('polling_error', (err) => {
-      console.error(`[telegram] ${channel.name} polling error: ${err.message}`);
+      const name = this.#channelById.get(channelId)?.name || channel.name;
+      console.error(`[telegram] ${name} polling error: ${err.message}`);
     });
 
     bot.on('error', (err) => {
-      console.error(`[telegram] ${channel.name} error: ${err.message}`);
+      const name = this.#channelById.get(channelId)?.name || channel.name;
+      console.error(`[telegram] ${name} error: ${err.message}`);
     });
 
     if (!isPolling && config.telegram.webhookUrl && this.#expressApp) {
@@ -92,29 +137,34 @@ export class TelegramManager {
     }
 
     bot.on('message', async (msg) => {
-      console.log(`[telegram] ${channel.name}: message from ${msg.from.id}: ${(msg.text || '(media)').slice(0, 50)}`);
+      // Look up the LIVE channel config on every message. This is what makes
+      // model swaps in the admin UI take effect without restarting the bot.
+      const current = this.#channelById.get(channelId) || channel;
+      const allowedUsers = current.config?.allowed_users || [];
+
+      console.log(`[telegram] ${current.name}: message from ${msg.from.id}: ${(msg.text || '(media)').slice(0, 50)}`);
 
       if (allowedUsers.length > 0 && !allowedUsers.includes(msg.from.id)) {
-        console.log(`[telegram] ${channel.name}: user ${msg.from.id} not in allowlist`);
+        console.log(`[telegram] ${current.name}: user ${msg.from.id} not in allowlist`);
         return;
       }
 
       if (msg.text === '/start') {
-        return bot.sendMessage(msg.chat.id, `Hi! I'm DogeClaw (${channel.agent_name}). Commands:\n/new - Start a new chat\n/reset - Clear current chat\n/cron - List scheduled jobs (use /cron rm <id> to delete)`);
+        return bot.sendMessage(msg.chat.id, `Hi! I'm DogeClaw (${current.agent_name}). Commands:\n/new - Start a new chat\n/reset - Clear current chat\n/cron - List scheduled jobs (use /cron rm <id> to delete)`);
       }
       if (msg.text === '/reset') {
-        const sid = await this.#resolveSessionId(channel, msg.chat.id);
-        await ensureSession(sid, this.#sessionMeta(channel, msg.chat.id));
+        const sid = await this.#resolveSessionId(current, msg.chat.id);
+        await ensureSession(sid, this.#sessionMeta(current, msg.chat.id));
         await resetSession(sid);
         return bot.sendMessage(msg.chat.id, 'Conversation reset.');
       }
       if (msg.text === '/new') {
-        const newSid = `tg-${channel.name}-${msg.chat.id}-${Date.now()}`;
-        await ensureSession(newSid, this.#sessionMeta(channel, msg.chat.id));
+        const newSid = `tg-${current.name}-${msg.chat.id}-${Date.now()}`;
+        await ensureSession(newSid, this.#sessionMeta(current, msg.chat.id));
         return bot.sendMessage(msg.chat.id, 'New chat started. Previous chat is still visible in the web UI.');
       }
       if (msg.text === '/cron' || msg.text?.startsWith('/cron ')) {
-        return this.#handleCronCommand(bot, msg, channel);
+        return this.#handleCronCommand(bot, msg, current);
       }
 
       let images = null;
@@ -126,26 +176,26 @@ export class TelegramManager {
           images = [await this.#downloadFileBase64(bot, photo.file_id)];
           textContent = msg.caption || 'What do you see in this image?';
         } catch (err) {
-          console.error(`[telegram] ${channel.name}: failed to download photo: ${err.message}`);
+          console.error(`[telegram] ${current.name}: failed to download photo: ${err.message}`);
         }
       } else if (msg.document && msg.document.mime_type?.startsWith('image/')) {
         try {
           images = [await this.#downloadFileBase64(bot, msg.document.file_id)];
           textContent = msg.caption || 'What do you see in this image?';
         } catch (err) {
-          console.error(`[telegram] ${channel.name}: failed to download document: ${err.message}`);
+          console.error(`[telegram] ${current.name}: failed to download document: ${err.message}`);
         }
       } else if (msg.voice || msg.audio) {
         const fileId = (msg.voice || msg.audio).file_id;
         const mime = (msg.voice || msg.audio).mime_type || 'audio/ogg';
         try {
-          console.log(`[telegram] ${channel.name}: downloading audio...`);
+          console.log(`[telegram] ${current.name}: downloading audio...`);
           bot.sendChatAction(msg.chat.id, 'typing').catch(() => {});
           const audioB64 = await this.#downloadFileBase64(bot, fileId);
           textContent = msg.caption || '';
 
-          const modelAcceptsAudio = Array.isArray(channel.accepts) && channel.accepts.includes('audio');
-          const isPeriodic = channel.response_mode === 'periodic';
+          const modelAcceptsAudio = Array.isArray(current.accepts) && current.accepts.includes('audio');
+          const isPeriodic = current.response_mode === 'periodic';
 
           // Skip Whisper when the model can ingest audio directly — the LLM
           // will hear the original. Periodic mode still needs a transcript
@@ -154,12 +204,12 @@ export class TelegramManager {
           let transcriptionEventId = null;
           if (!modelAcceptsAudio || isPeriodic) {
             const { transcribeAndLog } = await import('../audio.js');
-            const sessionId = await this.#resolveSessionId(channel, msg.chat.id);
+            const sessionId = await this.#resolveSessionId(current, msg.chat.id);
             const tr = await transcribeAndLog(audioB64, mime, {
               refId: sessionId,
               meta: {
-                channel_id: channel.id,
-                channel_name: channel.name,
+                channel_id: current.id,
+                channel_name: current.name,
                 chat_id: String(msg.chat.id),
                 telegram_message_id: msg.message_id,
                 session_id: sessionId,
@@ -170,10 +220,10 @@ export class TelegramManager {
           }
 
           if (isPeriodic) {
-            await this.#enqueue(channel.id, msg, transcript, images);
+            await this.#enqueue(current.id, msg, transcript, images);
             return;
           }
-          await this.#handleMessage(bot, msg.chat.id, textContent, images, channel, {
+          await this.#handleMessage(bot, msg.chat.id, textContent, images, current, {
             audioB64,
             audioMime: mime,
             transcript,
@@ -182,7 +232,7 @@ export class TelegramManager {
           });
           return;
         } catch (err) {
-          console.error(`[telegram] ${channel.name}: failed to handle audio: ${err.message}`);
+          console.error(`[telegram] ${current.name}: failed to handle audio: ${err.message}`);
           await bot.sendMessage(msg.chat.id, `Failed to process audio: ${err.message}`).catch(() => {});
           return;
         }
@@ -190,25 +240,32 @@ export class TelegramManager {
 
       if (!textContent && !images) return;
 
-      if (channel.response_mode === 'periodic') {
-        await this.#enqueue(channel.id, msg, textContent, images);
+      if (current.response_mode === 'periodic') {
+        await this.#enqueue(current.id, msg, textContent, images);
         return;
       }
 
-      await this.#handleMessage(bot, msg.chat.id, textContent, images, channel);
+      await this.#handleMessage(bot, msg.chat.id, textContent, images, current);
     });
 
-    this.#bots.set(channel.id, bot);
+    this.#bots.set(channelId, bot);
+    this.#armPeriodicTimer(bot, channel);
+  }
 
-    if (channel.response_mode === 'periodic' && channel.response_interval) {
-      const ms = parseInterval(channel.response_interval);
-      if (ms > 0) {
-        const timer = setInterval(() => this.#processQueue(channel), ms);
-        // Track the timer alongside the bot so stop() can clear it.
-        bot.__periodicTimer = timer;
-        console.log(`[telegram] ${channel.name}: periodic every ${channel.response_interval}`);
-      }
-    }
+  #armPeriodicTimer(bot, channel) {
+    if (channel.response_mode !== 'periodic' || !channel.response_interval) return;
+    const ms = parseInterval(channel.response_interval);
+    if (ms <= 0) return;
+    const channelId = channel.id;
+    // Look up fresh channel data each tick so an interval/agent/model change
+    // takes effect without restarting the timer (until the cadence itself
+    // changes — reload() detects that and re-arms).
+    bot.__periodicTimer = setInterval(() => {
+      const live = this.#channelById.get(channelId);
+      if (live) this.#processQueue(live).catch(() => {});
+    }, ms);
+    bot.__periodicInterval = channel.response_interval;
+    console.log(`[telegram] ${channel.name}: periodic every ${channel.response_interval}`);
   }
 
   async #downloadFileBase64(bot, fileId) {
@@ -388,6 +445,7 @@ export class TelegramManager {
       if (bot.__periodicTimer) clearInterval(bot.__periodicTimer);
     }
     this.#bots.clear();
+    this.#channelById.clear();
   }
 }
 
