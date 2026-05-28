@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Load dev fixtures into the running stack: starter model + skills + agents +
+# (optionally) a telegram channel. Idempotent — safe to re-run after editing
+# DOGECLAW_FIXTURE_* values in .env (rerun `docker compose up -d` first so
+# the agent container sees the new env).
+set -e
+cd "$(dirname "$0")/.."
+docker compose exec -w /opt/agent dogeclaw npm run seed
