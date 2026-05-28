@@ -173,8 +173,21 @@ export function createWebServer(agent) {
     });
 
     await withSessionLock(sid, async () => {
+      // Load history BEFORE persisting the new user message so agent.run
+      // doesn't see it twice (it re-appends the user message internally),
+      // and persist the user row FIRST so an LLM/network failure below
+      // doesn't silently drop the user's input from session history.
+      const { messages: history } = await loadSession(sid);
+
+      const userLabel = audio ? `[voice] ${message || '(audio)'}` : (message || '(image)');
+      await appendMessage(sid, {
+        role: 'user',
+        content: userLabel,
+        hasImage: !!images?.length,
+        hasAudio: !!audio,
+      });
+
       try {
-        const { messages: history } = await loadSession(sid);
         let fullContent = '';
         let fullThinking = '';
 
@@ -197,14 +210,7 @@ export function createWebServer(agent) {
         });
 
         const finalContent = fullContent || result.content;
-        const userLabel = audio ? `[voice] ${message || '(audio)'}` : (message || '(image)');
 
-        await appendMessage(sid, {
-          role: 'user',
-          content: userLabel,
-          hasImage: !!images?.length,
-          hasAudio: !!audio,
-        });
         await appendMessage(sid, {
           role: 'assistant',
           content: finalContent,

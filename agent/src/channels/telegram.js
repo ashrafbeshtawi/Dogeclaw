@@ -251,9 +251,27 @@ export class TelegramManager {
     };
 
     await withSessionLock(sessionId, async () => {
-      try {
-        const { messages: history } = await loadSession(sessionId);
+      // Load history BEFORE persisting the new user message so agent.run
+      // doesn't see it twice (it re-appends the user message internally),
+      // and persist the user row FIRST so an LLM/network failure below
+      // doesn't silently drop what the user sent.
+      const { messages: history } = await loadSession(sessionId);
 
+      const userMeta = {};
+      if (audio) {
+        userMeta.telegram_message_id = audio.telegramMessageId;
+        userMeta.transcript = audio.transcript;
+        userMeta.transcription_event_id = audio.transcriptionEventId;
+      }
+      await appendMessage(sessionId, {
+        role: 'user',
+        content: text || (audio?.transcript || ''),
+        hasImage: !!images?.length,
+        hasAudio: !!audio,
+        meta: userMeta,
+      });
+
+      try {
         const result = await this.#agent.run(text, history, {
           agentId: channel.agent_id,
           channelId: channel.id,
@@ -267,20 +285,6 @@ export class TelegramManager {
           audioTranscript: audio?.transcript || undefined,
         });
 
-        const userMeta = {};
-        if (audio) {
-          userMeta.telegram_message_id = audio.telegramMessageId;
-          userMeta.transcript = audio.transcript;
-          userMeta.transcription_event_id = audio.transcriptionEventId;
-        }
-
-        await appendMessage(sessionId, {
-          role: 'user',
-          content: text || (audio?.transcript || ''),
-          hasImage: !!images?.length,
-          hasAudio: !!audio,
-          meta: userMeta,
-        });
         await appendMessage(sessionId, {
           role: 'assistant',
           content: result.content,
