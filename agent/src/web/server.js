@@ -19,6 +19,7 @@ import {
   deleteJob as deleteCronJob,
 } from '../db/crons.js';
 import { reloadCronJobs } from '../cron/runner.js';
+import { BOT_COMMANDS } from '../channels/telegram.js';
 import { getAllSettings, setSetting } from '../db/settings.js';
 import {
   listEventLogs,
@@ -413,6 +414,13 @@ export function createWebServer(agent) {
       ORDER BY c.id
     `);
     res.json({ channels: result.rows });
+  });
+
+  // The canonical slash-command list the manager registers with Telegram
+  // (`bot.setMyCommands`) on every bot start. Also used by the /start
+  // greeting so the inline text matches the `/` menu in the client.
+  app.get('/api/telegram/commands', authMiddleware, (req, res) => {
+    res.json({ commands: BOT_COMMANDS });
   });
 
   // Returns the live in-memory view the running telegram manager has for a

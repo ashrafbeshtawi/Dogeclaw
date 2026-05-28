@@ -15,6 +15,17 @@ import config from '../config.js';
 
 const MAX_MSG_LEN = 4096;
 
+// Slash commands the bot supports. Registered with Telegram on every bot
+// start via `bot.setMyCommands` so the official client shows them in the
+// `/` menu. The /start greeting is generated from this same list so both
+// surfaces stay in sync. Descriptions must be ≤ 256 chars per the Bot API.
+export const BOT_COMMANDS = [
+  { command: 'start', description: 'Show the greeting and available commands' },
+  { command: 'new',   description: 'Start a fresh conversation' },
+  { command: 'reset', description: 'Clear the current conversation' },
+  { command: 'cron',  description: 'List scheduled jobs (use /cron rm <id> to remove one)' },
+];
+
 export class TelegramManager {
   #agent;
   #expressApp;
@@ -150,7 +161,13 @@ export class TelegramManager {
       }
 
       if (msg.text === '/start') {
-        return bot.sendMessage(msg.chat.id, `Hi! I'm DogeClaw (${current.agent_name}). Commands:\n/new - Start a new chat\n/reset - Clear current chat\n/cron - List scheduled jobs (use /cron rm <id> to delete)`);
+        const lines = BOT_COMMANDS
+          .filter(c => c.command !== 'start') // greeting already covers it
+          .map(c => `/${c.command} - ${c.description}`);
+        return bot.sendMessage(
+          msg.chat.id,
+          `Hi! I'm DogeClaw (${current.agent_name}). Commands:\n${lines.join('\n')}`,
+        );
       }
       if (msg.text === '/reset') {
         const sid = await this.#resolveSessionId(current, msg.chat.id);
@@ -250,6 +267,15 @@ export class TelegramManager {
 
     this.#bots.set(channelId, bot);
     this.#armPeriodicTimer(bot, channel);
+
+    // Tell Telegram about our slash commands so the official client renders
+    // the `/` menu. Fire-and-forget — if Telegram is unreachable we still
+    // want the bot to come up (the commands list is cosmetic).
+    bot.setMyCommands(BOT_COMMANDS).then(() => {
+      console.log(`[telegram] ${channel.name}: registered ${BOT_COMMANDS.length} bot commands`);
+    }).catch(err => {
+      console.error(`[telegram] ${channel.name}: setMyCommands failed: ${err.message}`);
+    });
   }
 
   #armPeriodicTimer(bot, channel) {
