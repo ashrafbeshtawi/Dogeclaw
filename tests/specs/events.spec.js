@@ -56,7 +56,13 @@ test.describe('event log admin page', () => {
   test('row click opens the detail modal with input/output', async ({ page }) => {
     insertEvent({ kind: 'cron_run', input: 'morning ping', output: 'all systems normal' });
     await openAdminTab(page, 'events');
-    await page.click('#eventsTable tr');
+    // showTab fires loadEvents asynchronously; target the seeded row by text
+    // so playwright auto-waits for it instead of clicking the "No events yet"
+    // placeholder. The preview column renders output, not input — so filter
+    // by output text.
+    const row = page.locator('#eventsTable tr', { hasText: 'all systems normal' });
+    await expect(row).toBeVisible();
+    await row.click();
     await expect(page.locator('#eventModal')).toHaveClass(/open/);
     await expect(page.locator('#eventModalBody')).toContainText('morning ping');
     await expect(page.locator('#eventModalBody')).toContainText('all systems normal');

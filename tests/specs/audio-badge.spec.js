@@ -21,20 +21,22 @@ test.describe('audio message rendering', () => {
     const sid = `pw-audio-${Date.now()}`;
     const transcript = `pw-transcript-${Date.now()}`;
 
-    const eventId = psql(`
+    // Insert event_log + sessions + session_messages in a single psql
+    // session so currval() can hand the just-inserted event id to the
+    // session_messages meta JSON without round-tripping through JS.
+    psql(`
       INSERT INTO event_logs (kind, ref_id, status, input, output, duration_ms, meta)
       VALUES ('audio_transcription', '${sid}', 'success',
               'mime=audio/ogg size~=8KB', $$${transcript}$$, 850,
-              '{"mime_type":"audio/ogg"}')
-      RETURNING id;
-    `).trim();
-
-    psql(`
+              '{"mime_type":"audio/ogg"}');
       INSERT INTO sessions (id, agent_id, agent_name, source)
       VALUES ('${sid}', ${agentId}, 'pw-audio-agent', 'telegram');
       INSERT INTO session_messages (session_id, role, content, has_audio, meta)
       VALUES ('${sid}', 'user', $$${transcript}$$, true,
-              '{"transcription_event_id": ${eventId}, "telegram_message_id": 42}');
+              jsonb_build_object(
+                'transcription_event_id', currval(pg_get_serial_sequence('event_logs','id')),
+                'telegram_message_id', 42
+              ));
       INSERT INTO session_messages (session_id, role, content)
       VALUES ('${sid}', 'assistant', 'got it');
     `);
@@ -56,7 +58,7 @@ test.describe('audio message rendering', () => {
       await expect(page.locator('#txBody')).toContainText(transcript);
       await expect(page.locator('#txBody')).toContainText('850 ms');
     } finally {
-      psql(`DELETE FROM sessions WHERE id = '${sid}'; DELETE FROM event_logs WHERE id = ${eventId};`);
+      psql(`DELETE FROM sessions WHERE id = '${sid}'; DELETE FROM event_logs WHERE ref_id = '${sid}';`);
     }
   });
 

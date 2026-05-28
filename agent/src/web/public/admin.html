@@ -747,7 +747,9 @@
         }
 
         function openEventDetail(id) {
-            var ev = events.find(function(e){return e.id === id;});
+            // BIGSERIAL ids come back from pg as strings; the onclick interpolates
+            // them unquoted so we receive a JS number — coerce both sides.
+            var ev = events.find(function(e){return String(e.id) === String(id);});
             if (!ev) return;
             var body = '';
             body += '<div><strong>ID:</strong> ' + esc(ev.id) + '</div>';
