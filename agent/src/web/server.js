@@ -415,6 +415,20 @@ export function createWebServer(agent) {
     res.json({ channels: result.rows });
   });
 
+  // Returns the live in-memory view the running telegram manager has for a
+  // channel — useful for diagnosing "I changed the model but the bot still
+  // uses the old one" issues, and exercised by the regression spec.
+  // Auth-gated like the rest of /api.
+  app.get('/api/channels/:id/runtime', authMiddleware, (req, res) => {
+    if (!telegramManager) return res.status(503).json({ error: 'telegram manager not running' });
+    const view = telegramManager.getChannelView(req.params.id);
+    if (!view) return res.status(404).json({ error: 'no live channel data for this id' });
+    // Don't leak the bot token.
+    const safeConfig = { ...(view.config || {}) };
+    delete safeConfig.token;
+    res.json({ ...view, config: safeConfig });
+  });
+
   app.post('/api/channels', authMiddleware, async (req, res) => {
     const { agent_id, type, name, config: channelConfig, response_mode, response_interval } = req.body;
     if (!agent_id || !type || !name) return res.status(400).json({ error: 'agent_id, type, and name required' });
