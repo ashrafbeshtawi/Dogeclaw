@@ -9,7 +9,7 @@
 //   docker exec dogeclaw npm run seed
 //
 // Reads from env (see .env.example):
-//   DOGECLAW_FIXTURE_GEMINI_API_KEY      — required to seed the model
+//   DOGECLAW_FIXTURE_OPENROUTER_API_KEY  — required to seed the model
 //   DOGECLAW_FIXTURE_TELEGRAM_BOT_TOKEN  — required to seed the telegram channel
 //
 // Missing env vars skip that piece with a warning rather than failing.
@@ -17,10 +17,13 @@
 import { adminQuery, shutdown } from '../src/db/pool.js';
 
 const env = process.env;
-const GEMINI_KEY = env.DOGECLAW_FIXTURE_GEMINI_API_KEY || '';
-const TG_TOKEN   = env.DOGECLAW_FIXTURE_TELEGRAM_BOT_TOKEN || '';
+const OPENROUTER_KEY = env.DOGECLAW_FIXTURE_OPENROUTER_API_KEY || '';
+const TG_TOKEN       = env.DOGECLAW_FIXTURE_TELEGRAM_BOT_TOKEN || '';
 
-const MODEL_NAME = 'gemini-2.5-flash';
+// Display name and OpenRouter model id. Operators can change OR_MODEL_ID
+// without touching anything else — DeepSeek's catalog moves fast.
+const MODEL_NAME    = 'deepseek-v4-pro';
+const OR_MODEL_ID   = 'deepseek/deepseek-v4-pro';
 const TG_CHANNEL_NAME = 'fixture-telegram';
 
 const SKILLS = [
@@ -77,19 +80,24 @@ const AGENTS = [
 ];
 
 async function seedModel() {
-  if (!GEMINI_KEY) {
-    console.log('[seed] skipped model — set DOGECLAW_FIXTURE_GEMINI_API_KEY to seed Gemini Flash 2.5');
+  if (!OPENROUTER_KEY) {
+    console.log('[seed] skipped model — set DOGECLAW_FIXTURE_OPENROUTER_API_KEY to seed DeepSeek via OpenRouter');
     return null;
   }
   const res = await adminQuery(
     `INSERT INTO models (name, provider, base_url, model_id, api_key, think, accepts)
-     VALUES ($1, 'google', 'https://generativelanguage.googleapis.com', 'gemini-2.5-flash', $2, false, '["text","image"]'::jsonb)
-     ON CONFLICT (name) DO UPDATE SET api_key = EXCLUDED.api_key
+     VALUES ($1, 'openrouter', 'https://openrouter.ai', $2, $3, false, '["text"]'::jsonb)
+     ON CONFLICT (name) DO UPDATE SET
+       provider = EXCLUDED.provider,
+       base_url = EXCLUDED.base_url,
+       model_id = EXCLUDED.model_id,
+       api_key  = EXCLUDED.api_key,
+       accepts  = EXCLUDED.accepts
      RETURNING id, (xmax = 0) AS inserted`,
-    [MODEL_NAME, GEMINI_KEY],
+    [MODEL_NAME, OR_MODEL_ID, OPENROUTER_KEY],
   );
   const row = res.rows[0];
-  console.log(`[seed] model "${MODEL_NAME}" ${row.inserted ? 'created' : 'updated'} (id=${row.id})`);
+  console.log(`[seed] model "${MODEL_NAME}" (${OR_MODEL_ID}) ${row.inserted ? 'created' : 'updated'} (id=${row.id})`);
   return row.id;
 }
 

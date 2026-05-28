@@ -1,5 +1,12 @@
 #!/usr/bin/env bash
-# Restart the dogeclaw container — picks up source changes from the host mount.
+# Restart the dogeclaw container so env changes in .env or docker-compose.yml
+# actually take effect. We use `up -d` (not `restart`) because Compose only
+# recreates the container when its config changed — `restart` reuses the
+# existing container, which means new env vars are NOT picked up.
+#
+# `--force-recreate dogeclaw` guarantees the container is rebuilt-and-replaced
+# every invocation, so this script is also a reliable way to bounce the Node
+# process when `node --watch` gets confused.
 set -e
 cd "$(dirname "$0")/.."
-docker compose restart dogeclaw
+docker compose up -d --force-recreate dogeclaw
