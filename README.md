@@ -52,7 +52,25 @@ bin/restart    docker compose restart dogeclaw
 bin/install    reinstall deps inside the running container
 bin/logs       tail logs
 bin/shell      bash inside the container
+bin/seed       load dev fixtures (model + skills + agents + telegram channel)
 ```
+
+#### Dev fixtures
+
+A fresh stack boots with an empty admin UI. To seed a starter model, a handful of skills, a few agents, and a telegram channel, fill in the fixture variables in `.env`:
+
+```env
+DOGECLAW_FIXTURE_GEMINI_API_KEY=AI...        # https://aistudio.google.com/apikey
+DOGECLAW_FIXTURE_TELEGRAM_BOT_TOKEN=12345:AB... # from BotFather
+```
+
+Then run the seeder once the stack is up:
+
+```bash
+bin/seed
+```
+
+The script is idempotent — re-running it leaves existing rows alone (or just refreshes the API key / bot token). Either fixture variable can be left blank to skip that piece; missing both is fine and only the skills + agents get seeded.
 
 ### Docker (consume the published images)
 

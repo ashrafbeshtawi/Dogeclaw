@@ -56,6 +56,11 @@ services:
       - DOGECLAW_OLLAMA_URL=${DOGECLAW_OLLAMA_URL:-}
       - DOGECLAW_TELEGRAM_MODE=${DOGECLAW_TELEGRAM_MODE:-polling}
       - DOGECLAW_WEBHOOK_URL=${DOGECLAW_WEBHOOK_URL:-}
+      # Consumed by `npm run seed` (agent/scripts/seed-dev.js). Leaving them
+      # blank means the corresponding fixture (model / telegram channel) is
+      # skipped — the seeder is safe to run with neither set.
+      - DOGECLAW_FIXTURE_GEMINI_API_KEY=${DOGECLAW_FIXTURE_GEMINI_API_KEY:-}
+      - DOGECLAW_FIXTURE_TELEGRAM_BOT_TOKEN=${DOGECLAW_FIXTURE_TELEGRAM_BOT_TOKEN:-}
     volumes:
       - agent_workspace:/root/agent-workspace
       - ./agent:/opt/agent
