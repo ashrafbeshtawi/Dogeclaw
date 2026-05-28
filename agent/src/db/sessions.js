@@ -3,11 +3,12 @@ import { adminQuery } from './pool.js';
 const HISTORY_LIMIT = 40;
 
 function rowToMessage(r) {
-  const out = { role: r.role, content: r.content };
+  const out = { id: r.id, role: r.role, content: r.content };
   if (r.tool_calls) out.toolCalls = r.tool_calls;
   if (r.thinking) out.thinking = r.thinking;
   if (r.has_image) out.hasImage = true;
   if (r.has_audio) out.hasAudio = true;
+  if (r.meta && Object.keys(r.meta).length) out.meta = r.meta;
   return out;
 }
 
@@ -21,9 +22,9 @@ export async function loadSession(id) {
   const s = sRes.rows[0];
 
   const mRes = await adminQuery(
-    `SELECT id, role, content, tool_calls, thinking, has_image, has_audio
+    `SELECT id, role, content, tool_calls, thinking, has_image, has_audio, meta
        FROM (
-         SELECT id, role, content, tool_calls, thinking, has_image, has_audio
+         SELECT id, role, content, tool_calls, thinking, has_image, has_audio, meta
          FROM session_messages
          WHERE session_id = $1
          ORDER BY id DESC
@@ -71,8 +72,8 @@ export async function ensureSession(id, meta = {}) {
 export async function appendMessage(sessionId, msg) {
   await adminQuery(
     `INSERT INTO session_messages
-       (session_id, role, content, tool_calls, thinking, has_image, has_audio)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+       (session_id, role, content, tool_calls, thinking, has_image, has_audio, meta)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
     [
       sessionId,
       msg.role,
@@ -81,6 +82,7 @@ export async function appendMessage(sessionId, msg) {
       msg.thinking ?? null,
       !!msg.hasImage,
       !!msg.hasAudio,
+      JSON.stringify(msg.meta || {}),
     ],
   );
   await adminQuery('UPDATE sessions SET updated_at = NOW() WHERE id = $1', [sessionId]);

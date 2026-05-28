@@ -75,6 +75,7 @@
         <button class="tab-button" data-tab="skills" onclick="showTab('skills')">Skills</button>
         <button class="tab-button" data-tab="channels" onclick="showTab('channels')">Channels</button>
         <button class="tab-button" data-tab="crons" onclick="showTab('crons')">Cron Jobs</button>
+        <button class="tab-button" data-tab="events" onclick="showTab('events')">Events</button>
         <button class="tab-button" data-tab="settings" onclick="showTab('settings')">Settings</button>
     </div>
 
@@ -142,6 +143,25 @@
             <div class="hint">Recurring uses standard cron syntax. One-shots auto-disable after firing. Web-session jobs are deleted with their session; channel jobs survive session resets.</div>
         </div>
 
+        <!-- Events -->
+        <div class="section" id="tab-events">
+            <div class="section-header">
+                <h2>Events</h2>
+                <select id="eventsKindFilter" onchange="loadEvents()" style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:6px;color:#e2e8f0;padding:0.3rem 0.6rem;font-size:0.8rem">
+                    <option value="">All kinds</option>
+                    <option value="cron_run">Cron runs</option>
+                    <option value="audio_transcription">Audio transcriptions</option>
+                </select>
+                <button onclick="loadEvents()" style="background:rgba(255,255,255,0.05);color:#e2e8f0;border:1px solid rgba(255,255,255,0.08)">Refresh</button>
+                <button class="danger" onclick="clearEvents()" style="background:rgba(248,113,113,0.08);color:#f87171;border:1px solid rgba(248,113,113,0.2)">Clear filtered</button>
+            </div>
+            <table>
+                <thead><tr><th>When</th><th>Kind</th><th>Status</th><th>Ref</th><th>Duration</th><th>Preview</th><th></th></tr></thead>
+                <tbody id="eventsTable"></tbody>
+            </table>
+            <div class="hint">Auto-pruned after <code id="eventsRetentionLabel">14</code> day(s) by the background cleanup tick. Adjust on the Settings tab.</div>
+        </div>
+
         <!-- Settings -->
         <div class="section" id="tab-settings">
             <div class="section-header">
@@ -154,9 +174,14 @@
                         <td><select id="settingTimezone" style="width:280px;padding:0.4rem 0.6rem;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:6px;color:#e2e8f0;font-family:inherit;font-size:0.85rem"></select></td>
                         <td><button onclick="saveTimezone()" style="background:linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);color:#fff;border:none;border-radius:8px;padding:0.35rem 0.8rem;font-size:0.75rem;cursor:pointer;font-weight:700">Save</button></td>
                     </tr>
+                    <tr>
+                        <td><strong>Event log retention (days)</strong></td>
+                        <td><input type="number" id="settingEventRetention" min="1" step="1" style="width:120px;padding:0.4rem 0.6rem;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:6px;color:#e2e8f0;font-family:inherit;font-size:0.85rem"></td>
+                        <td><button onclick="saveEventRetention()" style="background:linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);color:#fff;border:none;border-radius:8px;padding:0.35rem 0.8rem;font-size:0.75rem;cursor:pointer;font-weight:700">Save</button></td>
+                    </tr>
                 </tbody>
             </table>
-            <div class="hint">IANA timezone — default for new cron jobs.</div>
+            <div class="hint">Timezone is the default for new cron jobs. Event log retention controls how long cron-run and audio-transcription logs are kept before the daily cleanup tick deletes them.</div>
         </div>
     </div>
 
@@ -335,8 +360,21 @@
         </div>
     </div>
 
+    <!-- Event detail Modal -->
+    <div class="modal-overlay" id="eventModal">
+        <div class="modal" style="max-width:720px">
+            <h3 id="eventModalTitle">Event</h3>
+            <div id="eventModalBody" style="font-size:0.82rem;color:#cbd5e1"></div>
+            <div class="btn-row">
+                <button class="btn-cancel" onclick="closeModal('eventModal')">Close</button>
+                <button class="danger" id="eventDeleteBtn" style="background:rgba(248,113,113,0.08);color:#f87171;border:1px solid rgba(248,113,113,0.2);padding:0.55rem 1.1rem;border-radius:8px;cursor:pointer;font-size:0.85rem;font-weight:600">Delete</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         var models = [], agents = [], channels = [], skills = [], siteConfig = {}, crons = [], sessions = [], settings = {};
+        var events = [];
 
         var TIMEZONES = (typeof Intl !== 'undefined' && Intl.supportedValuesOf)
             ? Intl.supportedValuesOf('timeZone')
@@ -354,11 +392,12 @@
             if (window.location.hash !== '#'+name) {
                 history.replaceState(null, '', '#'+name);
             }
+            if (name === 'events') loadEvents();
         }
 
         function initialTab() {
             var fromHash = (window.location.hash || '').replace(/^#/, '');
-            var valid = ['models','agents','skills','channels','crons','settings'];
+            var valid = ['models','agents','skills','channels','crons','events','settings'];
             return valid.includes(fromHash) ? fromHash : 'models';
         }
 
@@ -662,6 +701,87 @@
 
         function renderSettings() {
             document.getElementById('settingTimezone').innerHTML = timezoneOptions(settings.timezone || 'UTC');
+            var retention = settings.event_log_retention_days;
+            document.getElementById('settingEventRetention').value = (retention == null ? 14 : retention);
+            document.getElementById('eventsRetentionLabel').textContent = (retention == null ? 14 : retention);
+        }
+
+        async function saveEventRetention() {
+            var n = parseInt(document.getElementById('settingEventRetention').value, 10);
+            if (!Number.isFinite(n) || n <= 0) return alert('Retention must be a positive integer');
+            var r = await api('PUT','/api/settings/event_log_retention_days',{ value: n });
+            if (r && r.error) return alert(r.error);
+            await load();
+        }
+
+        async function loadEvents() {
+            var kind = document.getElementById('eventsKindFilter').value;
+            var qs = kind ? ('?kind=' + encodeURIComponent(kind)) : '';
+            var r = await api('GET', '/api/event-logs' + qs);
+            events = (r && r.logs) || [];
+            renderEvents();
+        }
+
+        function eventPreview(ev) {
+            if (ev.status === 'error') return ev.error || '(no error message)';
+            var src = ev.output || ev.input || '';
+            return String(src).replace(/\s+/g, ' ').slice(0, 80);
+        }
+
+        function renderEvents() {
+            var rows = events.map(function(ev) {
+                var when = new Date(ev.created_at).toLocaleString();
+                var statusBadge = '<span class="badge ' + (ev.status === 'success' ? 'badge-on' : 'badge-off') + '">' + esc(ev.status) + '</span>';
+                var dur = ev.duration_ms != null ? (ev.duration_ms + ' ms') : '—';
+                return '<tr style="cursor:pointer" onclick="openEventDetail(' + ev.id + ')">'
+                    + '<td style="white-space:nowrap">' + esc(when) + '</td>'
+                    + '<td><span class="badge badge-tag">' + esc(ev.kind) + '</span></td>'
+                    + '<td>' + statusBadge + '</td>'
+                    + '<td><code>' + esc(ev.ref_id || '') + '</code></td>'
+                    + '<td>' + esc(dur) + '</td>'
+                    + '<td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(eventPreview(ev)) + '</td>'
+                    + '<td class="actions"><button class="danger" onclick="event.stopPropagation();deleteEvent(' + ev.id + ')">Delete</button></td>'
+                    + '</tr>';
+            }).join('');
+            document.getElementById('eventsTable').innerHTML = rows || '<tr><td colspan="7" style="color:#475569;text-align:center;padding:1.5rem">No events yet.</td></tr>';
+        }
+
+        function openEventDetail(id) {
+            var ev = events.find(function(e){return e.id === id;});
+            if (!ev) return;
+            var body = '';
+            body += '<div><strong>ID:</strong> ' + esc(ev.id) + '</div>';
+            body += '<div><strong>When:</strong> ' + esc(new Date(ev.created_at).toLocaleString()) + '</div>';
+            body += '<div><strong>Kind:</strong> ' + esc(ev.kind) + '</div>';
+            body += '<div><strong>Status:</strong> ' + esc(ev.status) + '</div>';
+            if (ev.ref_id) body += '<div><strong>Ref:</strong> <code>' + esc(ev.ref_id) + '</code></div>';
+            if (ev.duration_ms != null) body += '<div><strong>Duration:</strong> ' + esc(ev.duration_ms) + ' ms</div>';
+            if (ev.input) body += '<div style="margin-top:0.75rem"><strong>Input</strong><pre style="white-space:pre-wrap;background:rgba(255,255,255,0.03);padding:0.6rem;border-radius:6px;margin-top:0.25rem;max-height:220px;overflow:auto">' + esc(ev.input) + '</pre></div>';
+            if (ev.output) body += '<div style="margin-top:0.5rem"><strong>Output</strong><pre style="white-space:pre-wrap;background:rgba(255,255,255,0.03);padding:0.6rem;border-radius:6px;margin-top:0.25rem;max-height:300px;overflow:auto">' + esc(ev.output) + '</pre></div>';
+            if (ev.error) body += '<div style="margin-top:0.5rem"><strong>Error</strong><pre style="white-space:pre-wrap;background:rgba(248,113,113,0.06);color:#fca5a5;padding:0.6rem;border-radius:6px;margin-top:0.25rem;max-height:220px;overflow:auto">' + esc(ev.error) + '</pre></div>';
+            if (ev.meta && Object.keys(ev.meta).length) body += '<div style="margin-top:0.5rem"><strong>Meta</strong><pre style="white-space:pre-wrap;background:rgba(255,255,255,0.03);padding:0.6rem;border-radius:6px;margin-top:0.25rem;max-height:200px;overflow:auto">' + esc(JSON.stringify(ev.meta, null, 2)) + '</pre></div>';
+            document.getElementById('eventModalBody').innerHTML = body;
+            document.getElementById('eventModalTitle').textContent = 'Event #' + ev.id;
+            document.getElementById('eventDeleteBtn').onclick = function() { deleteEvent(ev.id, true); };
+            document.getElementById('eventModal').classList.add('open');
+        }
+
+        async function deleteEvent(id, fromModal) {
+            if (!confirm('Delete this event log entry?')) return;
+            var r = await api('DELETE', '/api/event-logs/' + id);
+            if (r && r.error) return alert(r.error);
+            if (fromModal) closeModal('eventModal');
+            await loadEvents();
+        }
+
+        async function clearEvents() {
+            var kind = document.getElementById('eventsKindFilter').value;
+            var label = kind ? ('all "' + kind + '" entries') : 'ALL event log entries';
+            if (!confirm('Delete ' + label + '? This cannot be undone.')) return;
+            var qs = kind ? ('?kind=' + encodeURIComponent(kind)) : '';
+            var r = await api('DELETE', '/api/event-logs' + qs);
+            if (r && r.error) return alert(r.error);
+            await loadEvents();
         }
 
         function onCronTargetTypeChange() {

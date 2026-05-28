@@ -1,6 +1,6 @@
 import { chat, chatStream } from './llm.js';
 import config from './config.js';
-import { transcribeAudio } from './audio.js';
+import { transcribeAndLog } from './audio.js';
 import { listSkillsForAgent } from './tools/skills.js';
 
 const MAX_ITERATIONS = 10;
@@ -82,17 +82,30 @@ IMPORTANT rules for tool use:
 
     let processedMessage = userMessage;
     if (!opts.triggerNote) {
+      // Caller can pre-transcribe and pass opts.audioTranscript (telegram does
+      // this so it can log + link the transcription to the session message).
+      // When provided we use it directly instead of re-running whisper.
+      let transcript = opts.audioTranscript || null;
       if (opts.audio) {
         if (accepts.includes('audio')) {
           processedMessage = processedMessage || 'What is said in this audio?';
         } else {
-          if (onEvent) onEvent('status', 'Transcribing audio...');
-          const transcript = await transcribeAudio(opts.audio, opts.audioMime);
+          if (!transcript) {
+            if (onEvent) onEvent('status', 'Transcribing audio...');
+            const result = await transcribeAndLog(opts.audio, opts.audioMime, {
+              refId: sessionId,
+              meta: { agent_id: agentId, session_id: sessionId, channel_id: channelId, chat_id: chatId },
+            });
+            transcript = result.text;
+          }
           if (onEvent) onEvent('transcript', transcript);
           processedMessage = processedMessage
             ? `${processedMessage}\n\n[Voice message]: ${transcript}`
             : transcript;
         }
+      } else if (transcript && !processedMessage) {
+        // Pre-transcribed but no raw audio passed (telegram non-audio path).
+        processedMessage = transcript;
       }
 
       if (!processedMessage && opts.images?.length) {

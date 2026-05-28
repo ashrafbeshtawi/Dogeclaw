@@ -143,13 +143,37 @@ export class TelegramManager {
           bot.sendChatAction(msg.chat.id, 'typing').catch(() => {});
           const audioB64 = await this.#downloadFileBase64(bot, fileId);
           textContent = msg.caption || '';
+
+          // Transcribe upfront in BOTH modes so we get a single audit trail
+          // (one event_logs row per voice message) and so audio-capable models
+          // and non-audio models share the same logged transcript that the
+          // admin UI links back to the session message.
+          const { transcribeAndLog } = await import('../audio.js');
+          const sessionId = await this.#resolveSessionId(channel, msg.chat.id);
+          const tr = await transcribeAndLog(audioB64, mime, {
+            refId: sessionId,
+            meta: {
+              channel_id: channel.id,
+              channel_name: channel.name,
+              chat_id: String(msg.chat.id),
+              telegram_message_id: msg.message_id,
+              session_id: sessionId,
+            },
+          });
+          const transcript = tr.text;
+          const transcriptionEventId = tr.eventLogId;
+
           if (channel.response_mode === 'periodic') {
-            const { transcribeAudio: ta } = await import('../audio.js');
-            textContent = await ta(audioB64, mime);
-            await this.#enqueue(channel.id, msg, textContent, images);
+            await this.#enqueue(channel.id, msg, transcript, images);
             return;
           }
-          await this.#handleMessage(bot, msg.chat.id, textContent, images, channel, audioB64, mime);
+          await this.#handleMessage(bot, msg.chat.id, textContent, images, channel, {
+            audioB64,
+            audioMime: mime,
+            transcript,
+            transcriptionEventId,
+            telegramMessageId: msg.message_id,
+          });
           return;
         } catch (err) {
           console.error(`[telegram] ${channel.name}: failed to handle audio: ${err.message}`);
@@ -205,7 +229,7 @@ export class TelegramManager {
     return existing || `tg-${channel.name}-${chatId}`;
   }
 
-  async #handleMessage(bot, chatId, text, images, channel, audioB64, audioMime) {
+  async #handleMessage(bot, chatId, text, images, channel, audio = null) {
     bot.sendChatAction(chatId, 'typing').catch(() => {});
 
     const sessionId = await this.#resolveSessionId(channel, chatId);
@@ -232,15 +256,24 @@ export class TelegramManager {
           systemPrompt: channel?.system_prompt,
           modelConfig,
           images: images || undefined,
-          audio: audioB64 || undefined,
-          audioMime: audioMime || undefined,
+          audio: audio?.audioB64 || undefined,
+          audioMime: audio?.audioMime || undefined,
+          audioTranscript: audio?.transcript || undefined,
         });
+
+        const userMeta = {};
+        if (audio) {
+          userMeta.telegram_message_id = audio.telegramMessageId;
+          userMeta.transcript = audio.transcript;
+          userMeta.transcription_event_id = audio.transcriptionEventId;
+        }
 
         await appendMessage(sessionId, {
           role: 'user',
-          content: text || '',
+          content: text || (audio?.transcript || ''),
           hasImage: !!images?.length,
-          hasAudio: !!audioB64,
+          hasAudio: !!audio,
+          meta: userMeta,
         });
         await appendMessage(sessionId, {
           role: 'assistant',
