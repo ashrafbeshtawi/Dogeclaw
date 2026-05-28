@@ -1,6 +1,6 @@
 const { test, expect } = require('@playwright/test');
 
-const TABS = ['models', 'agents', 'skills', 'channels', 'crons', 'settings'];
+const TABS = ['models', 'agents', 'skills', 'channels', 'crons', 'events', 'settings'];
 
 test.describe('admin tabs', () => {
   test('default tab is Models', async ({ page }) => {

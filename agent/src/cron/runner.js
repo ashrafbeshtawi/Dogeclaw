@@ -15,6 +15,7 @@ import {
 } from '../db/sessions.js';
 import { withSessionLock } from '../lib/sessionLock.js';
 import { adminQuery } from '../db/pool.js';
+import { insertEventLog } from '../db/eventLogs.js';
 
 const ONE_SHOT_TICK_MS = 60_000;
 
@@ -104,6 +105,10 @@ export class CronRunner {
     const isOneShot = !!job.run_at;
     let sessionId;
     let channelRow = null;
+    const startedAt = Date.now();
+    let assistantContent = '';
+
+    console.log(`[cron] job ${jobId} input: ${job.prompt}`);
 
     try {
       const aRes = await adminQuery(
@@ -169,6 +174,7 @@ export class CronRunner {
         });
 
         const content = result.content || '';
+        assistantContent = content;
         await appendMessage(sessionId, {
           role: 'assistant',
           content,
@@ -185,9 +191,41 @@ export class CronRunner {
       });
 
       await recordRun(job.id, { status: 'ok', error: null });
+      console.log(`[cron] job ${jobId} output: ${assistantContent}`);
+      await insertEventLog({
+        kind: 'cron_run',
+        refId: jobId,
+        status: 'success',
+        input: job.prompt,
+        output: assistantContent,
+        durationMs: Date.now() - startedAt,
+        meta: {
+          agent_id: job.agent_id,
+          session_id: sessionId,
+          channel_id: isTelegram ? job.channel_id : null,
+          chat_id: isTelegram ? String(job.chat_id) : null,
+          one_shot: isOneShot,
+        },
+      }).catch(err => console.error(`[cron] event log insert failed:`, err.message));
     } catch (err) {
       console.error(`[cron] job ${jobId} failed:`, err.message);
       await recordRun(jobId, { status: 'error', error: err.message }).catch(() => {});
+      await insertEventLog({
+        kind: 'cron_run',
+        refId: jobId,
+        status: 'error',
+        input: job.prompt,
+        output: assistantContent || null,
+        error: err.message,
+        durationMs: Date.now() - startedAt,
+        meta: {
+          agent_id: job.agent_id,
+          session_id: sessionId,
+          channel_id: isTelegram ? job.channel_id : null,
+          chat_id: isTelegram ? String(job.chat_id) : null,
+          one_shot: isOneShot,
+        },
+      }).catch(logErr => console.error(`[cron] event log insert failed:`, logErr.message));
     } finally {
       if (isOneShot) await disableJob(jobId).catch(() => {});
     }

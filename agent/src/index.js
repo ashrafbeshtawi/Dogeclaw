@@ -4,6 +4,7 @@ import { shutdown as shutdownPools } from './db/pool.js';
 import { ToolRegistry } from './tools/index.js';
 import { Agent } from './agent.js';
 import { CronRunner, setActiveCronRunner } from './cron/runner.js';
+import { EventLogCleanup } from './cron/logCleanup.js';
 import { TelegramManager } from './channels/telegram.js';
 import { McpManager } from './mcp/client.js';
 import { registerMcpTools } from './tools/mcp.js';
@@ -68,6 +69,11 @@ async function main() {
   // Now that channels + legacy data are loaded, start the cron runner.
   await cronRunner.start();
 
+  // Background daily pruning of event_logs, governed by the
+  // event_log_retention_days setting.
+  const eventLogCleanup = new EventLogCleanup();
+  await eventLogCleanup.start();
+
   // Start HTTP server
   app.listen(config.web.port, '0.0.0.0', () => {
     console.log(`[dogeclaw] Web UI at http://0.0.0.0:${config.web.port}`);
@@ -79,6 +85,7 @@ async function main() {
     console.log('[dogeclaw] Shutting down...');
     telegram.stop();
     cronRunner.stop();
+    eventLogCleanup.stop();
     await mcp.stop();
     await shutdownPools();
     process.exit(0);

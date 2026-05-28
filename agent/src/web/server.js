@@ -20,6 +20,14 @@ import {
 } from '../db/crons.js';
 import { reloadCronJobs } from '../cron/runner.js';
 import { getAllSettings, setSetting } from '../db/settings.js';
+import {
+  listEventLogs,
+  getEventLog,
+  deleteEventLog as deleteEventLogRow,
+  deleteAllEventLogs,
+  deleteEventLogsOlderThan,
+  EVENT_KINDS,
+} from '../db/eventLogs.js';
 import { withSessionLock } from '../lib/sessionLock.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -509,6 +517,55 @@ export function createWebServer(agent) {
     if (!ok) return res.status(404).json({ error: 'not found' });
     reloadCronJobs();
     res.json({ ok: true });
+  });
+
+  // --- Event logs (cron runs + audio transcriptions) ---
+  app.get('/api/event-logs', authMiddleware, async (req, res) => {
+    const { kind, ref_id, limit, before } = req.query;
+    if (kind && !EVENT_KINDS.includes(kind)) {
+      return res.status(400).json({ error: `unknown kind: ${kind}` });
+    }
+    try {
+      const rows = await listEventLogs({ kind, refId: ref_id, limit, before });
+      res.json({ logs: rows, kinds: EVENT_KINDS });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/event-logs/:id', authMiddleware, async (req, res) => {
+    try {
+      const row = await getEventLog(req.params.id);
+      if (!row) return res.status(404).json({ error: 'not found' });
+      res.json(row);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete('/api/event-logs/:id', authMiddleware, async (req, res) => {
+    const ok = await deleteEventLogRow(req.params.id);
+    if (!ok) return res.status(404).json({ error: 'not found' });
+    res.json({ ok: true });
+  });
+
+  // Bulk delete: ?kind=... narrows; ?older_than_days=N prunes by age; neither
+  // means wipe-all (used by the "Clear all" button).
+  app.delete('/api/event-logs', authMiddleware, async (req, res) => {
+    const { kind, older_than_days } = req.query;
+    if (kind && !EVENT_KINDS.includes(kind)) {
+      return res.status(400).json({ error: `unknown kind: ${kind}` });
+    }
+    try {
+      if (older_than_days) {
+        const deleted = await deleteEventLogsOlderThan(Number(older_than_days));
+        return res.json({ ok: true, deleted });
+      }
+      const deleted = await deleteAllEventLogs({ kind });
+      res.json({ ok: true, deleted });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
   // --- Settings ---
