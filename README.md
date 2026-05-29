@@ -60,9 +60,11 @@ bin/seed       load dev fixtures (model + skills + agents + telegram channel)
 A fresh stack boots with an empty admin UI. To seed a starter model, a handful of skills, a few agents, and a telegram channel, fill in the fixture variables in `.env`:
 
 ```env
-DOGECLAW_FIXTURE_GEMINI_API_KEY=AI...        # https://aistudio.google.com/apikey
+DOGECLAW_FIXTURE_OPENROUTER_API_KEY=sk-or-... # https://openrouter.ai/keys
 DOGECLAW_FIXTURE_TELEGRAM_BOT_TOKEN=12345:AB... # from BotFather
 ```
+
+The seeded model points at `deepseek/deepseek-v4-pro` via OpenRouter — edit `agent/scripts/seed-dev.js` to use a different one.
 
 Then run the seeder once the stack is up:
 
