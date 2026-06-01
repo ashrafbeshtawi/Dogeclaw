@@ -153,6 +153,21 @@ function toGeminiContents(messages) {
     const role = m.role === 'assistant' ? 'model' : 'user';
     const parts = [];
     if (m.content) parts.push({ text: m.content });
+    // Forward media as inline_data parts. Caller (agent.js) only sets these
+    // fields when the model's `accepts` list covers the media type, so this
+    // never sends audio/video to a text-only model.
+    if (m.audio) {
+      parts.push({ inline_data: { mime_type: m.audioMime || 'audio/ogg', data: m.audio } });
+    }
+    if (m.video) {
+      parts.push({ inline_data: { mime_type: m.videoMime || 'video/mp4', data: m.video } });
+    }
+    if (m.images?.length) {
+      for (const img of m.images) {
+        // Base64 string; mime sniffing is the operator's problem at upload.
+        parts.push({ inline_data: { mime_type: 'image/png', data: img } });
+      }
+    }
     if (m.tool_calls) {
       for (const tc of m.tool_calls) {
         parts.push({ functionCall: { name: tc.function.name, args: tc.function.arguments } });

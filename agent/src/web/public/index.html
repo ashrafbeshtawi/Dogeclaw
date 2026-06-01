@@ -37,21 +37,7 @@
         .msg.user { align-self: flex-end; background: linear-gradient(135deg, #1e293b 0%, #1a2332 100%); border: 1px solid rgba(255,255,255,0.06); }
         .msg.assistant { align-self: flex-start; background: #12121c; border: 1px solid rgba(255,255,255,0.05); }
         .msg .image-preview { max-width: 200px; max-height: 150px; border-radius: 8px; margin-bottom: 0.5rem; display: block; }
-        .media-chip { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.7rem; padding: 0.2rem 0.55rem; border-radius: 999px; background: rgba(96,165,250,0.1); color: #93c5fd; margin-bottom: 0.45rem; cursor: pointer; border: 1px solid rgba(96,165,250,0.15); }
-        .media-chip:hover { background: rgba(96,165,250,0.18); }
-        .media-chip.no-link { cursor: default; }
-
-        /* Transcription modal */
-        .tx-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 100; align-items: center; justify-content: center; backdrop-filter: blur(4px); }
-        .tx-overlay.open { display: flex; }
-        .tx-modal { background: #12121c; border: 1px solid rgba(96,165,250,0.15); border-radius: 14px; padding: 1.25rem 1.5rem; width: 100%; max-width: 560px; max-height: 80vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.5); }
-        .tx-modal h3 { font-size: 1rem; font-weight: 700; margin-bottom: 0.8rem; }
-        .tx-modal .row { font-size: 0.8rem; color: #94a3b8; margin-bottom: 0.4rem; }
-        .tx-modal .row strong { color: #cbd5e1; }
-        .tx-modal pre { background: rgba(255,255,255,0.03); padding: 0.6rem 0.75rem; border-radius: 8px; font-size: 0.8rem; white-space: pre-wrap; color: #e2e8f0; margin-top: 0.25rem; max-height: 220px; overflow: auto; }
-        .tx-modal .close-row { display: flex; justify-content: flex-end; margin-top: 1rem; }
-        .tx-modal button { background: rgba(255,255,255,0.04); color: #e2e8f0; border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 0.45rem 0.95rem; font-size: 0.8rem; cursor: pointer; }
-        .tx-modal button:hover { background: rgba(255,255,255,0.07); }
+        .media-chip { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.7rem; padding: 0.2rem 0.55rem; border-radius: 999px; background: rgba(96,165,250,0.1); color: #93c5fd; margin-bottom: 0.45rem; border: 1px solid rgba(96,165,250,0.15); }
 
         /* Thinking block */
         .thinking-block { font-size: 0.8rem; color: #64748b; background: rgba(220,38,38,0.03); border: 1px solid rgba(220,38,38,0.08); border-radius: 8px; margin-bottom: 0.5rem; overflow: hidden; }
@@ -122,13 +108,6 @@
             <img id="previewImg" src="" alt="">
             <span id="previewName"></span>
             <span class="remove" onclick="clearFile()">&times;</span>
-        </div>
-        <div class="tx-overlay" id="txOverlay" onclick="if(event.target===this) closeTx()">
-            <div class="tx-modal">
-                <h3 id="txTitle">Audio transcription</h3>
-                <div id="txBody"></div>
-                <div class="close-row"><button onclick="closeTx()">Close</button></div>
-            </div>
         </div>
         <div class="input-area">
             <button class="media-btn" onclick="document.getElementById('fileInput').click()" title="Attach file">&#128206;</button>
@@ -227,18 +206,16 @@
             var el = document.getElementById('messages');
             var div = document.createElement('div');
             div.className = 'msg user';
-            if (msg.hasAudio) {
+            // Media chip(s) — purely informational now that there's no Whisper
+            // transcript to expand. Stack them on their own line when present.
+            var chips = [];
+            if (msg.hasAudio) chips.push({ icon: '&#127908;', label: 'voice message' });
+            if (msg.hasImage) chips.push({ icon: '&#128247;', label: 'image' });
+            if (msg.hasVideo) chips.push({ icon: '&#127916;', label: 'video' });
+            for (var i = 0; i < chips.length; i++) {
                 var chip = document.createElement('span');
-                var txId = msg.meta && msg.meta.transcription_event_id;
-                chip.className = 'media-chip' + (txId ? '' : ' no-link');
-                chip.innerHTML = '&#127908; voice message' + (txId ? ' &middot; transcription' : '');
-                if (txId) chip.onclick = function() { openTx(txId); };
-                div.appendChild(chip);
-                div.appendChild(document.createElement('br'));
-            } else if (msg.hasImage) {
-                var chip = document.createElement('span');
-                chip.className = 'media-chip no-link';
-                chip.innerHTML = '&#128247; image';
+                chip.className = 'media-chip';
+                chip.innerHTML = chips[i].icon + ' ' + chips[i].label;
                 div.appendChild(chip);
                 div.appendChild(document.createElement('br'));
             }
@@ -248,32 +225,6 @@
             el.appendChild(div);
             el.scrollTop = el.scrollHeight;
         }
-
-        async function openTx(eventId) {
-            var body = document.getElementById('txBody');
-            body.innerHTML = '<div class="row">Loading...</div>';
-            document.getElementById('txOverlay').classList.add('open');
-            try {
-                var res = await fetch('/api/event-logs/' + eventId);
-                if (!res.ok) { body.innerHTML = '<div class="row">Could not load transcription event (it may have been pruned).</div>'; return; }
-                var ev = await res.json();
-                var html = '';
-                html += '<div class="row"><strong>When:</strong> ' + new Date(ev.created_at).toLocaleString() + '</div>';
-                html += '<div class="row"><strong>Status:</strong> ' + ev.status + '</div>';
-                if (ev.duration_ms != null) html += '<div class="row"><strong>Duration:</strong> ' + ev.duration_ms + ' ms</div>';
-                if (ev.input) html += '<div class="row"><strong>Input</strong></div><pre>' + escapeHtml(ev.input) + '</pre>';
-                if (ev.output) html += '<div class="row" style="margin-top:0.5rem"><strong>Transcript</strong></div><pre>' + escapeHtml(ev.output) + '</pre>';
-                if (ev.error) html += '<div class="row" style="margin-top:0.5rem;color:#fca5a5"><strong>Error</strong></div><pre style="color:#fca5a5">' + escapeHtml(ev.error) + '</pre>';
-                if (ev.meta && (ev.meta.stderr || ev.meta.stdout)) {
-                    if (ev.meta.stderr) html += '<div class="row" style="margin-top:0.5rem"><strong>Whisper stderr</strong></div><pre>' + escapeHtml(ev.meta.stderr) + '</pre>';
-                }
-                body.innerHTML = html;
-            } catch (err) {
-                body.innerHTML = '<div class="row">Error: ' + escapeHtml(err.message) + '</div>';
-            }
-        }
-
-        function closeTx() { document.getElementById('txOverlay').classList.remove('open'); }
 
         async function deleteSession(id) {
             try {
@@ -463,8 +414,6 @@
                             var data = JSON.parse(line.slice(6));
                             if (eventType === 'status') {
                                 statusRow.querySelector('.status-text').textContent = data;
-                            } else if (eventType === 'transcript') {
-                                statusRow.querySelector('.status-text').textContent = 'Heard: "' + data.slice(0, 60) + '"';
                             } else if (eventType === 'thinking') {
                                 thinkDiv.style.display = 'block';
                                 thinkingText += data;

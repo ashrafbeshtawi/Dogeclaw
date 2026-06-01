@@ -1,6 +1,6 @@
 import { adminQuery } from './pool.js';
 
-export const EVENT_KINDS = ['cron_run', 'audio_transcription'];
+export const EVENT_KINDS = ['cron_run'];
 
 export async function insertEventLog({ kind, refId, status, input, output, error, durationMs, meta }) {
   const res = await adminQuery(

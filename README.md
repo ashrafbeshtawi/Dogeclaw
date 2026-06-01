@@ -152,7 +152,7 @@ Model API keys (OpenRouter, Google Gemini, etc.) are configured per-model **at r
 - Streaming chat with **live thinking display** for reasoning models
 - **Collapsible tool calls** — see exactly what the agent did, with arguments and results
 - Session management, conversation history
-- **Image and audio upload** — drop a screenshot or a voice note straight into chat
+- **Image, audio & video upload** — attach media; the model receives it if it can consume it, otherwise sees an `[Attached: <type>]` hint so it can ask for text
 - Agent picker — switch between configured agents per conversation
 - Admin pages at `/admin` for managing models, agents, skills, channels, and MCP servers
 
@@ -173,8 +173,7 @@ Configure models per-agent across three providers, all routed through one unifie
 ### Telegram bots
 - Multiple bots, each backed by a different agent, configured from the admin UI
 - **Polling** mode (no public URL needed — perfect for local dev) or **webhook** mode for production
-- **Voice note transcription** via Whisper before forwarding to the agent
-- **Image forwarding** to vision-capable models
+- **Media routing** by the model's declared `accepts` list: voice / photo / video bytes are forwarded only to models that can consume them (e.g. Gemini via `inline_data`). Anything else turns into an `[Attached: <type>]` hint so the model still knows the user sent something
 - Two response modes: **immediate** (reply per message) or **periodic** (batch and reply on a cron schedule)
 
 ### Skills system
@@ -189,9 +188,8 @@ Reusable knowledge / instructions stored in the DB, assignable per-agent (or mar
 - **MCP bridge** — connect any Model Context Protocol stdio server and expose its tools to the agent
 - **`read_skill`** — load a skill's full content on demand
 
-### Audio & vision
-- **Whisper** transcription baked into the image (model pre-downloaded at build time)
-- Image inputs forwarded transparently to vision-capable models
+### Audio, image & video
+Media is forwarded straight to the model when its `accepts` list covers the type — Ollama via `images`, Gemini via `inline_data`. For models that don't accept a given media type, the LLM message gets an `[Attached: <type>]` placeholder so the model can acknowledge it and ask the user for text. No on-box transcription stack.
 
 ### Cron
 In-process cron scheduler. Both the agent (via the `schedule_cron` tool) and the admin UI can schedule recurring runs that hit a configured agent and (optionally) deliver the result to a Telegram chat.
@@ -205,7 +203,7 @@ Configure stdio MCP servers in the admin UI; their tools are dynamically registe
 
 ```
 dogeclaw/
-├── Dockerfile              # agent image (Node + Whisper + agent source)
+├── Dockerfile              # slim Node-only agent image
 ├── entrypoint.sh           # runs npm install + node --watch on every start
 ├── docker-compose.yml      # local-dev: postgres + migrations + agent
 ├── .env.example
@@ -216,7 +214,7 @@ dogeclaw/
 │       ├── index.js        # boot orchestrator
 │       ├── agent.js        # core agent loop (LLM + tools)
 │       ├── llm.js          # Ollama / OpenRouter / Gemini drivers
-│       ├── audio.js        # Whisper transcription
+│       ├── lib/            # tiny pure helpers (composeUserText, sessionLock)
 │       ├── db/             # pg pools, schema queries
 │       ├── tools/          # built-in tool implementations
 │       ├── cron/           # in-process cron scheduler

@@ -1,11 +1,11 @@
 const { test, expect } = require('@playwright/test');
 const { psql } = require('../helpers/db.js');
 
-// Seeds a session containing a voice message + its transcription event_log
-// row, then asserts the chat UI renders a clickable voice chip that opens a
-// modal containing the transcription.
+// Whisper was removed in V12. The chat UI now renders an informational
+// voice chip on user messages with has_audio = true, but there's no
+// transcription modal anymore — the chip is purely a marker.
 
-test.describe('audio message rendering', () => {
+test.describe('media chip rendering on user messages', () => {
   let agentId;
 
   test.beforeAll(async ({ request }) => {
@@ -17,26 +17,15 @@ test.describe('audio message rendering', () => {
     if (agentId) await request.delete(`/api/agents/${agentId}`);
   });
 
-  test('voice user message gets a chip; clicking opens the transcription modal', async ({ page }) => {
+  test('voice user message renders a chip; nothing happens on click', async ({ page }) => {
     const sid = `pw-audio-${Date.now()}`;
-    const transcript = `pw-transcript-${Date.now()}`;
+    const body = `pw-audio-${Date.now()}`;
 
-    // Insert event_log + sessions + session_messages in a single psql
-    // session so currval() can hand the just-inserted event id to the
-    // session_messages meta JSON without round-tripping through JS.
     psql(`
-      INSERT INTO event_logs (kind, ref_id, status, input, output, duration_ms, meta)
-      VALUES ('audio_transcription', '${sid}', 'success',
-              'mime=audio/ogg size~=8KB', $$${transcript}$$, 850,
-              '{"mime_type":"audio/ogg"}');
       INSERT INTO sessions (id, agent_id, agent_name, source)
       VALUES ('${sid}', ${agentId}, 'pw-audio-agent', 'telegram');
-      INSERT INTO session_messages (session_id, role, content, has_audio, meta)
-      VALUES ('${sid}', 'user', $$${transcript}$$, true,
-              jsonb_build_object(
-                'transcription_event_id', currval(pg_get_serial_sequence('event_logs','id')),
-                'telegram_message_id', 42
-              ));
+      INSERT INTO session_messages (session_id, role, content, has_audio)
+      VALUES ('${sid}', 'user', $$${body}$$, true);
       INSERT INTO session_messages (session_id, role, content)
       VALUES ('${sid}', 'assistant', 'got it');
     `);
@@ -47,22 +36,44 @@ test.describe('audio message rendering', () => {
       await expect(item).toBeVisible();
       await item.click();
 
-      // Voice chip on the user message
       const chip = page.locator('.msg.user .media-chip').first();
       await expect(chip).toBeVisible();
-      await expect(chip).toContainText('voice');
+      await expect(chip).toContainText('voice message');
 
-      // Clicking opens the modal with the transcript
+      // No modal exists anymore; clicking the chip should be a no-op.
       await chip.click();
-      await expect(page.locator('#txOverlay')).toHaveClass(/open/);
-      await expect(page.locator('#txBody')).toContainText(transcript);
-      await expect(page.locator('#txBody')).toContainText('850 ms');
+      await expect(page.locator('#txOverlay')).toHaveCount(0);
     } finally {
-      psql(`DELETE FROM sessions WHERE id = '${sid}'; DELETE FROM event_logs WHERE ref_id = '${sid}';`);
+      psql(`DELETE FROM sessions WHERE id = '${sid}';`);
     }
   });
 
-  test('user message without audio has no media chip', async ({ page }) => {
+  test('image and video chips render alongside audio when flagged', async ({ page }) => {
+    const sid = `pw-media-${Date.now()}`;
+    psql(`
+      INSERT INTO sessions (id, agent_id, agent_name, source)
+      VALUES ('${sid}', ${agentId}, 'pw-audio-agent', 'telegram');
+      INSERT INTO session_messages (session_id, role, content, has_audio, has_image, has_video)
+      VALUES ('${sid}', 'user', 'check these out', true, true, true);
+      INSERT INTO session_messages (session_id, role, content)
+      VALUES ('${sid}', 'assistant', 'cool');
+    `);
+
+    try {
+      await page.goto('/');
+      const item = page.locator('#sessions .session-item', { hasText: 'cool' });
+      await item.click();
+      const chips = page.locator('.msg.user .media-chip');
+      await expect(chips).toHaveCount(3);
+      await expect(chips.nth(0)).toContainText('voice message');
+      await expect(chips.nth(1)).toContainText('image');
+      await expect(chips.nth(2)).toContainText('video');
+    } finally {
+      psql(`DELETE FROM sessions WHERE id = '${sid}';`);
+    }
+  });
+
+  test('text-only user message has no media chip', async ({ page }) => {
     const sid = `pw-noaudio-${Date.now()}`;
     const marker = `pw-noaudio-marker-${Date.now()}`;
     psql(`

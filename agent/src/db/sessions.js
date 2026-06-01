@@ -8,6 +8,7 @@ function rowToMessage(r) {
   if (r.thinking) out.thinking = r.thinking;
   if (r.has_image) out.hasImage = true;
   if (r.has_audio) out.hasAudio = true;
+  if (r.has_video) out.hasVideo = true;
   if (r.meta && Object.keys(r.meta).length) out.meta = r.meta;
   return out;
 }
@@ -22,9 +23,9 @@ export async function loadSession(id) {
   const s = sRes.rows[0];
 
   const mRes = await adminQuery(
-    `SELECT id, role, content, tool_calls, thinking, has_image, has_audio, meta
+    `SELECT id, role, content, tool_calls, thinking, has_image, has_audio, has_video, meta
        FROM (
-         SELECT id, role, content, tool_calls, thinking, has_image, has_audio, meta
+         SELECT id, role, content, tool_calls, thinking, has_image, has_audio, has_video, meta
          FROM session_messages
          WHERE session_id = $1
          ORDER BY id DESC
@@ -72,8 +73,8 @@ export async function ensureSession(id, meta = {}) {
 export async function appendMessage(sessionId, msg) {
   await adminQuery(
     `INSERT INTO session_messages
-       (session_id, role, content, tool_calls, thinking, has_image, has_audio, meta)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+       (session_id, role, content, tool_calls, thinking, has_image, has_audio, has_video, meta)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
     [
       sessionId,
       msg.role,
@@ -82,6 +83,7 @@ export async function appendMessage(sessionId, msg) {
       msg.thinking ?? null,
       !!msg.hasImage,
       !!msg.hasAudio,
+      !!msg.hasVideo,
       JSON.stringify(msg.meta || {}),
     ],
   );
