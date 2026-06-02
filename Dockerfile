@@ -1,17 +1,13 @@
 FROM node:22-bookworm-slim
 
+# Slim base — Whisper was removed (no on-box speech-to-text); the LLM hosts
+# audio/video understanding natively when the configured model accepts it.
+# git/curl stay because skills and tools shell out to them.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     ca-certificates \
     curl \
-    python3 \
-    python3-pip \
-    ffmpeg \
-  && pip3 install --break-system-packages openai-whisper \
   && rm -rf /var/lib/apt/lists/*
-
-# Pre-download whisper base model
-RUN python3 -c "import whisper; whisper.load_model('base')"
 
 # Bake the agent source as a fallback (used when no volume mount overrides /opt/agent).
 # node_modules is NOT installed at build time — the entrypoint runs `npm install`

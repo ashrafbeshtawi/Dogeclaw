@@ -1,7 +1,7 @@
 import { chat, chatStream } from './llm.js';
 import config from './config.js';
-import { transcribeAndLog } from './audio.js';
 import { listSkillsForAgent } from './tools/skills.js';
+import { composeUserText } from './lib/composeUserText.js';
 
 const MAX_ITERATIONS = 10;
 
@@ -80,38 +80,9 @@ IMPORTANT rules for tool use:
     const provider = mc.provider || 'ollama';
     const onEvent = opts.onEvent || null;
 
-    let processedMessage = userMessage;
-    if (!opts.triggerNote) {
-      // Caller can pre-transcribe and pass opts.audioTranscript (telegram does
-      // this so it can log + link the transcription to the session message).
-      // When provided we use it directly instead of re-running whisper.
-      let transcript = opts.audioTranscript || null;
-      if (opts.audio) {
-        if (accepts.includes('audio')) {
-          processedMessage = processedMessage || 'What is said in this audio?';
-        } else {
-          if (!transcript) {
-            if (onEvent) onEvent('status', 'Transcribing audio...');
-            const result = await transcribeAndLog(opts.audio, opts.audioMime, {
-              refId: sessionId,
-              meta: { agent_id: agentId, session_id: sessionId, channel_id: channelId, chat_id: chatId },
-            });
-            transcript = result.text;
-          }
-          if (onEvent) onEvent('transcript', transcript);
-          processedMessage = processedMessage
-            ? `${processedMessage}\n\n[Voice message]: ${transcript}`
-            : transcript;
-        }
-      } else if (transcript && !processedMessage) {
-        // Pre-transcribed but no raw audio passed (telegram non-audio path).
-        processedMessage = transcript;
-      }
-
-      if (!processedMessage && opts.images?.length) {
-        processedMessage = 'What do you see in this image?';
-      }
-    }
+    const processedMessage = opts.triggerNote
+      ? userMessage
+      : composeUserText(userMessage, opts, accepts);
 
     const systemContent = opts.systemNote
       ? `${systemPrompt}\n\nNote: ${opts.systemNote}`
@@ -123,8 +94,17 @@ IMPORTANT rules for tool use:
       messages.push({ role: 'system', content: opts.triggerNote });
     } else {
       const userMsg = { role: 'user', content: processedMessage };
-      if (opts.images?.length && accepts.includes('image')) {
-        userMsg.images = opts.images;
+      // Attach media the model claims to accept. The LLM layer is responsible
+      // for translating these into the provider's wire format (Ollama uses
+      // `images`; Gemini uses inline_data via toGeminiContents).
+      if (opts.images?.length && accepts.includes('image')) userMsg.images = opts.images;
+      if (opts.audio && accepts.includes('audio')) {
+        userMsg.audio = opts.audio;
+        userMsg.audioMime = opts.audioMime || 'audio/ogg';
+      }
+      if (opts.video && accepts.includes('video')) {
+        userMsg.video = opts.video;
+        userMsg.videoMime = opts.videoMime || 'video/mp4';
       }
       messages.push(userMsg);
     }

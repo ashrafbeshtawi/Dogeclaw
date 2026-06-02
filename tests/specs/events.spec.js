@@ -25,32 +25,25 @@ test.describe('event log admin page', () => {
     psql('DELETE FROM event_logs;');
   });
 
-  test('renders both kinds and the empty state', async ({ page }) => {
+  test('renders rows and the empty state', async ({ page }) => {
     await openAdminTab(page, 'events');
     await expect(page.locator('#eventsTable')).toContainText('No events yet');
 
-    insertEvent({ kind: 'cron_run',            refId: '1', input: 'do a thing', output: 'I did it' });
-    insertEvent({ kind: 'audio_transcription', refId: 'tg:1:1:42', input: 'mime=audio/ogg size~=8KB', output: 'hello world' });
+    insertEvent({ kind: 'cron_run', refId: '1', input: 'do a thing', output: 'I did it' });
+    insertEvent({ kind: 'cron_run', refId: '2', input: 'another',     output: 'and another' });
 
     await page.click('button:has-text("Refresh")');
     await expect(page.locator('#eventsTable tr')).toHaveCount(2);
     await expect(page.locator('#eventsTable')).toContainText('cron_run');
-    await expect(page.locator('#eventsTable')).toContainText('audio_transcription');
   });
 
-  test('kind filter narrows the list', async ({ page }) => {
+  test('kind filter scopes to cron_run', async ({ page }) => {
     insertEvent({ kind: 'cron_run', input: 'a', output: 'a-out' });
     insertEvent({ kind: 'cron_run', input: 'b', output: 'b-out' });
-    insertEvent({ kind: 'audio_transcription', input: 'c', output: 'c-tx' });
 
     await openAdminTab(page, 'events');
     await page.selectOption('#eventsKindFilter', 'cron_run');
     await expect(page.locator('#eventsTable tr')).toHaveCount(2);
-    await expect(page.locator('#eventsTable')).not.toContainText('audio_transcription');
-
-    await page.selectOption('#eventsKindFilter', 'audio_transcription');
-    await expect(page.locator('#eventsTable tr')).toHaveCount(1);
-    await expect(page.locator('#eventsTable')).toContainText('c-tx');
   });
 
   test('row click opens the detail modal with input/output', async ({ page }) => {
@@ -79,19 +72,15 @@ test.describe('event log admin page', () => {
     await expect(page.locator('#eventsTable')).toContainText('keep');
   });
 
-  test('"Clear filtered" wipes only the selected kind', async ({ page }) => {
+  test('"Clear filtered" wipes the matching rows', async ({ page }) => {
     insertEvent({ kind: 'cron_run', input: 'a', output: 'a' });
     insertEvent({ kind: 'cron_run', input: 'b', output: 'b' });
-    insertEvent({ kind: 'audio_transcription', input: 'c', output: 'c' });
 
     await openAdminTab(page, 'events');
     await page.selectOption('#eventsKindFilter', 'cron_run');
     page.on('dialog', d => d.accept());
     await page.click('button:has-text("Clear filtered")');
     await expect(page.locator('#eventsTable')).toContainText('No events yet');
-
-    await page.selectOption('#eventsKindFilter', 'audio_transcription');
-    await expect(page.locator('#eventsTable tr')).toHaveCount(1);
   });
 });
 

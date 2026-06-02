@@ -150,7 +150,6 @@
                 <select id="eventsKindFilter" onchange="loadEvents()" style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:6px;color:#e2e8f0;padding:0.3rem 0.6rem;font-size:0.8rem">
                     <option value="">All kinds</option>
                     <option value="cron_run">Cron runs</option>
-                    <option value="audio_transcription">Audio transcriptions</option>
                 </select>
                 <button onclick="loadEvents()" style="background:rgba(255,255,255,0.05);color:#e2e8f0;border:1px solid rgba(255,255,255,0.08)">Refresh</button>
                 <button class="danger" onclick="clearEvents()" style="background:rgba(248,113,113,0.08);color:#f87171;border:1px solid rgba(248,113,113,0.2)">Clear filtered</button>
@@ -214,7 +213,7 @@
                 <label><input type="checkbox" id="acceptAudio"> audio</label>
                 <label><input type="checkbox" id="acceptVideo"> video</label>
             </div>
-            <div class="field-hint">If audio is enabled, voice messages go directly to the model instead of Whisper transcription.</div>
+            <div class="field-hint">Pick what the model can ingest directly. Unsupported types become an `[Attached: &lt;type&gt;]` hint in the prompt so the model still knows the user sent something.</div>
             <div id="testResult" style="margin-top:0.75rem;font-size:0.8rem;display:none;padding:0.5rem 0.7rem;border-radius:6px"></div>
             <div class="btn-row">
                 <button class="btn-cancel" onclick="testModel()" style="border-color:rgba(96,165,250,0.3);color:#60a5fa">Test Connection</button>

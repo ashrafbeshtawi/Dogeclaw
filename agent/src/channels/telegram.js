@@ -184,85 +184,80 @@ export class TelegramManager {
         return this.#handleCronCommand(bot, msg, current);
       }
 
-      let images = null;
-      let textContent = msg.text || '';
+      // Media routing: download only what the model can actually consume.
+      // Anything the model doesn't accept becomes a [Attached: <type>] hint
+      // so the model can at least acknowledge it to the user.
+      const accepts = Array.isArray(current.accepts) ? current.accepts : ['text'];
+      let textContent = msg.text || msg.caption || '';
+      const media = { images: null, audio: null, audioMime: null, video: null, videoMime: null };
+      const mediaHints = [];
 
-      if (msg.photo) {
-        const photo = msg.photo[msg.photo.length - 1];
-        try {
-          images = [await this.#downloadFileBase64(bot, photo.file_id)];
-          textContent = msg.caption || 'What do you see in this image?';
-        } catch (err) {
-          console.error(`[telegram] ${current.name}: failed to download photo: ${err.message}`);
-        }
-      } else if (msg.document && msg.document.mime_type?.startsWith('image/')) {
-        try {
-          images = [await this.#downloadFileBase64(bot, msg.document.file_id)];
-          textContent = msg.caption || 'What do you see in this image?';
-        } catch (err) {
-          console.error(`[telegram] ${current.name}: failed to download document: ${err.message}`);
-        }
-      } else if (msg.voice || msg.audio) {
-        const fileId = (msg.voice || msg.audio).file_id;
-        const mime = (msg.voice || msg.audio).mime_type || 'audio/ogg';
-        try {
-          console.log(`[telegram] ${current.name}: downloading audio...`);
-          bot.sendChatAction(msg.chat.id, 'typing').catch(() => {});
-          const audioB64 = await this.#downloadFileBase64(bot, fileId);
-          textContent = msg.caption || '';
-
-          const modelAcceptsAudio = Array.isArray(current.accepts) && current.accepts.includes('audio');
-          const isPeriodic = current.response_mode === 'periodic';
-
-          // Skip Whisper when the model can ingest audio directly — the LLM
-          // will hear the original. Periodic mode still needs a transcript
-          // because the queue is text-only (we lose the audio crossing it).
-          let transcript = null;
-          let transcriptionEventId = null;
-          if (!modelAcceptsAudio || isPeriodic) {
-            const { transcribeAndLog } = await import('../audio.js');
-            const sessionId = await this.#resolveSessionId(current, msg.chat.id);
-            const tr = await transcribeAndLog(audioB64, mime, {
-              refId: sessionId,
-              meta: {
-                channel_id: current.id,
-                channel_name: current.name,
-                chat_id: String(msg.chat.id),
-                telegram_message_id: msg.message_id,
-                session_id: sessionId,
-              },
-            });
-            transcript = tr.text;
-            transcriptionEventId = tr.eventLogId;
+      try {
+        // Photos / image-as-document. `msg.photo` is one image at multiple
+        // resolutions (thumb / medium / large) — the last entry is highest-
+        // res. Media-group sends arrive as separate `message` events, each
+        // with its own `msg.photo`, so we handle them independently here.
+        const imageFileId = msg.photo
+          ? msg.photo[msg.photo.length - 1].file_id
+          : (msg.document?.mime_type?.startsWith('image/') ? msg.document.file_id : null);
+        if (imageFileId) {
+          if (accepts.includes('image')) {
+            media.images = [await this.#downloadFileBase64(bot, imageFileId)];
+          } else {
+            mediaHints.push('image');
           }
-
-          if (isPeriodic) {
-            await this.#enqueue(current.id, msg, transcript, images);
-            return;
-          }
-          await this.#handleMessage(bot, msg.chat.id, textContent, images, current, {
-            audioB64,
-            audioMime: mime,
-            transcript,
-            transcriptionEventId,
-            telegramMessageId: msg.message_id,
-          });
-          return;
-        } catch (err) {
-          console.error(`[telegram] ${current.name}: failed to handle audio: ${err.message}`);
-          await bot.sendMessage(msg.chat.id, `Failed to process audio: ${err.message}`).catch(() => {});
-          return;
         }
-      }
 
-      if (!textContent && !images) return;
+        // Voice notes + audio files. The `typing` chat-action is sent once
+        // for every inbound message by #handleMessage — no need to repeat
+        // it here.
+        const audioPart = msg.voice || msg.audio;
+        if (audioPart) {
+          if (accepts.includes('audio')) {
+            console.log(`[telegram] ${current.name}: downloading audio for audio-capable model...`);
+            media.audio = await this.#downloadFileBase64(bot, audioPart.file_id);
+            media.audioMime = audioPart.mime_type || 'audio/ogg';
+          } else {
+            mediaHints.push('audio');
+          }
+        }
 
-      if (current.response_mode === 'periodic') {
-        await this.#enqueue(current.id, msg, textContent, images);
+        // Videos + video notes (round Telegram bubbles)
+        const videoPart = msg.video || msg.video_note;
+        if (videoPart) {
+          if (accepts.includes('video')) {
+            console.log(`[telegram] ${current.name}: downloading video for video-capable model...`);
+            media.video = await this.#downloadFileBase64(bot, videoPart.file_id);
+            media.videoMime = videoPart.mime_type || 'video/mp4';
+          } else {
+            mediaHints.push('video');
+          }
+        }
+      } catch (err) {
+        console.error(`[telegram] ${current.name}: failed to download media: ${err.message}`);
+        await bot.sendMessage(msg.chat.id, `Failed to process attachment: ${err.message}`).catch(() => {});
         return;
       }
 
-      await this.#handleMessage(bot, msg.chat.id, textContent, images, current);
+      const hasAnything = textContent || media.images || media.audio || media.video || mediaHints.length;
+      if (!hasAnything) return;
+
+      if (current.response_mode === 'periodic') {
+        // The queue table only carries text + images. Audio/video bytes are
+        // dropped on this path; bake any media we won't be forwarding into
+        // the stored text as [Attached: X] hints so the batched run still
+        // knows the user attached something.
+        const queueHints = new Set(mediaHints);
+        if (media.audio) queueHints.add('audio');
+        if (media.video) queueHints.add('video');
+        const queueText = queueHints.size
+          ? [textContent, [...queueHints].map(t => `[Attached: ${t}]`).join(' ')].filter(Boolean).join('\n')
+          : textContent;
+        await this.#enqueue(current.id, msg, queueText, media.images);
+        return;
+      }
+
+      await this.#handleMessage(bot, msg.chat.id, textContent, media, mediaHints, current, msg.message_id);
     });
 
     this.#bots.set(channelId, bot);
@@ -318,7 +313,7 @@ export class TelegramManager {
     return existing || `tg-${channel.name}-${chatId}`;
   }
 
-  async #handleMessage(bot, chatId, text, images, channel, audio = null) {
+  async #handleMessage(bot, chatId, text, media, mediaHints, channel, telegramMessageId) {
     bot.sendChatAction(chatId, 'typing').catch(() => {});
 
     const sessionId = await this.#resolveSessionId(channel, chatId);
@@ -340,17 +335,17 @@ export class TelegramManager {
       // doesn't silently drop what the user sent.
       const { messages: history } = await loadSession(sessionId);
 
-      const userMeta = {};
-      if (audio) {
-        userMeta.telegram_message_id = audio.telegramMessageId;
-        userMeta.transcript = audio.transcript;
-        userMeta.transcription_event_id = audio.transcriptionEventId;
-      }
+      const hasAudio = !!media.audio || mediaHints.includes('audio');
+      const hasImage = !!media.images?.length || mediaHints.includes('image');
+      const hasVideo = !!media.video || mediaHints.includes('video');
+      const userMeta = telegramMessageId ? { telegram_message_id: telegramMessageId } : {};
+
       await appendMessage(sessionId, {
         role: 'user',
-        content: text || (audio?.transcript || ''),
-        hasImage: !!images?.length,
-        hasAudio: !!audio,
+        content: text || '',
+        hasImage,
+        hasAudio,
+        hasVideo,
         meta: userMeta,
       });
 
@@ -362,10 +357,12 @@ export class TelegramManager {
           sessionId,
           systemPrompt: channel?.system_prompt,
           modelConfig,
-          images: images || undefined,
-          audio: audio?.audioB64 || undefined,
-          audioMime: audio?.audioMime || undefined,
-          audioTranscript: audio?.transcript || undefined,
+          images: media.images || undefined,
+          audio: media.audio || undefined,
+          audioMime: media.audioMime || undefined,
+          video: media.video || undefined,
+          videoMime: media.videoMime || undefined,
+          mediaHints: mediaHints.length ? mediaHints : undefined,
         });
 
         await appendMessage(sessionId, {

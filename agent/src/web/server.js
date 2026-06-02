@@ -127,8 +127,8 @@ export function createWebServer(agent) {
 
   // --- Chat (SSE streaming) ---
   app.post('/api/chat', authMiddleware, async (req, res) => {
-    const { message, sessionId: reqSessionId, agentId, images, audio, audioMime } = req.body;
-    if (!message && !images?.length && !audio) return res.status(400).json({ error: 'message, images, or audio required' });
+    const { message, sessionId: reqSessionId, agentId, images, audio, audioMime, video, videoMime } = req.body;
+    if (!message && !images?.length && !audio && !video) return res.status(400).json({ error: 'message, images, audio, or video required' });
 
     const sid = reqSessionId || randomUUID();
     const existing = await loadSession(sid);
@@ -180,12 +180,12 @@ export function createWebServer(agent) {
       // doesn't silently drop the user's input from session history.
       const { messages: history } = await loadSession(sid);
 
-      const userLabel = audio ? `[voice] ${message || '(audio)'}` : (message || '(image)');
       await appendMessage(sid, {
         role: 'user',
-        content: userLabel,
+        content: message || '',
         hasImage: !!images?.length,
         hasAudio: !!audio,
+        hasVideo: !!video,
       });
 
       try {
@@ -200,13 +200,14 @@ export function createWebServer(agent) {
           images: images || undefined,
           audio: audio || undefined,
           audioMime: audioMime || undefined,
+          video: video || undefined,
+          videoMime: videoMime || undefined,
           onEvent: (type, data) => {
             if (type === 'thinking') { fullThinking += data; send('thinking', data); }
             else if (type === 'content') { fullContent += data; send('content', data); }
             else if (type === 'tool_calls') { send('tool_calls', data); }
             else if (type === 'tool_result') { send('tool_result', data); }
             else if (type === 'status') { send('status', data); }
-            else if (type === 'transcript') { send('transcript', data); }
           },
         });
 
@@ -547,7 +548,7 @@ export function createWebServer(agent) {
     res.json({ ok: true });
   });
 
-  // --- Event logs (cron runs + audio transcriptions) ---
+  // --- Event logs (cron runs) ---
   app.get('/api/event-logs', authMiddleware, async (req, res) => {
     const { kind, ref_id, limit, before } = req.query;
     if (kind && !EVENT_KINDS.includes(kind)) {
