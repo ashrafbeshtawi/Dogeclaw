@@ -193,7 +193,10 @@ export class TelegramManager {
       const mediaHints = [];
 
       try {
-        // Photos / image-as-document
+        // Photos / image-as-document. `msg.photo` is one image at multiple
+        // resolutions (thumb / medium / large) — the last entry is highest-
+        // res. Media-group sends arrive as separate `message` events, each
+        // with its own `msg.photo`, so we handle them independently here.
         const imageFileId = msg.photo
           ? msg.photo[msg.photo.length - 1].file_id
           : (msg.document?.mime_type?.startsWith('image/') ? msg.document.file_id : null);
@@ -205,10 +208,11 @@ export class TelegramManager {
           }
         }
 
-        // Voice notes + audio files
+        // Voice notes + audio files. The `typing` chat-action is sent once
+        // for every inbound message by #handleMessage — no need to repeat
+        // it here.
         const audioPart = msg.voice || msg.audio;
         if (audioPart) {
-          bot.sendChatAction(msg.chat.id, 'typing').catch(() => {});
           if (accepts.includes('audio')) {
             console.log(`[telegram] ${current.name}: downloading audio for audio-capable model...`);
             media.audio = await this.#downloadFileBase64(bot, audioPart.file_id);
