@@ -14,6 +14,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # on every start, into the host-mounted agent/ directory.
 COPY agent/ /opt/agent/
 
+# SQL migrations are applied in-process by agent/src/db/migrate.js on startup.
+# Live in /opt/migrations/sql so a sibling volume mount can override during dev
+# (see docker-compose.yml).
+COPY migrations/sql/ /opt/migrations/sql/
+
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 

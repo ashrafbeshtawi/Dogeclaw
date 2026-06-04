@@ -91,9 +91,6 @@ jobs:
           - image: dogeclaw
             context: .
             dockerfile: Dockerfile
-          - image: dogeclaw-migrations
-            context: ./migrations
-            dockerfile: Dockerfile
 
     steps:
       - uses: actions/checkout@v4

@@ -1,6 +1,7 @@
 import { mkdir } from 'node:fs/promises';
 import config from './config.js';
 import { shutdown as shutdownPools } from './db/pool.js';
+import { runMigrations } from './db/migrate.js';
 import { ToolRegistry } from './tools/index.js';
 import { Agent } from './agent.js';
 import { CronRunner, setActiveCronRunner } from './cron/runner.js';
@@ -25,7 +26,14 @@ async function main() {
   await mkdir(config.paths.files, { recursive: true });
   await mkdir(config.paths.logs, { recursive: true });
 
-  // DB migrations are run by the Flyway service before this container starts.
+  // Run any pending DB migrations before anything else touches the pool.
+  // Failure here is fatal — surface it loudly rather than letting the agent
+  // serve against a half-migrated schema.
+  if (config.database.adminUrl) {
+    await runMigrations();
+  } else {
+    console.warn('[dogeclaw] DOGECLAW_ADMIN_DATABASE_URL not set; skipping migrations');
+  }
 
   // Tool registry
   const registry = new ToolRegistry();
