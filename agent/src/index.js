@@ -27,13 +27,9 @@ async function main() {
   await mkdir(config.paths.logs, { recursive: true });
 
   // Run any pending DB migrations before anything else touches the pool.
-  // Failure here is fatal — surface it loudly rather than letting the agent
-  // serve against a half-migrated schema.
-  if (config.database.adminUrl) {
-    await runMigrations();
-  } else {
-    console.warn('[dogeclaw] DOGECLAW_ADMIN_DATABASE_URL not set; skipping migrations');
-  }
+  // Fail-fast — getAdminPool() throws if DOGECLAW_ADMIN_DATABASE_URL is
+  // unset, which propagates up to main().catch and exits non-zero.
+  await runMigrations();
 
   // Tool registry
   const registry = new ToolRegistry();
