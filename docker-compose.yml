@@ -1,10 +1,10 @@
 # Local development compose for the DogeClaw agent.
-# Brings up just enough to hack on the agent: postgres + migrations + agent.
-# No traefik, no auth — the web UI is exposed directly on http://localhost:3000.
+# Brings up just enough to hack on the agent: postgres + agent.
+# Migrations run in-process inside the agent container on boot — no separate
+# service. No traefik, no auth — the web UI is exposed on http://localhost:3000.
 #
-# Real deployments should NOT use this file. They consume the published images:
+# Real deployments should NOT use this file. They consume the published image:
 #   ghcr.io/ashrafbeshtawi/dogeclaw:vX.Y.Z
-#   ghcr.io/ashrafbeshtawi/dogeclaw-migrations:vX.Y.Z
 
 services:
   postgres:
@@ -33,20 +33,6 @@ services:
     networks:
       - dogeclaw
 
-  migrations:
-    build: ./migrations
-    container_name: dogeclaw-migrations
-    environment:
-      - FLYWAY_URL=jdbc:postgresql://postgres:5432/${POSTGRES_DB:-dogeclaw}
-      - FLYWAY_USER=${POSTGRES_USER:-admin}
-      - FLYWAY_PASSWORD=${POSTGRES_PASSWORD:-changeme}
-    depends_on:
-      postgres:
-        condition: service_healthy
-    networks:
-      - dogeclaw
-    restart: "no"
-
   dogeclaw:
     build: .
     container_name: dogeclaw
@@ -68,11 +54,14 @@ services:
     volumes:
       - agent_workspace:/root/agent-workspace
       - ./agent:/opt/agent
+      # Override the baked-in migrations dir with the host source so dev edits
+      # to migrations/sql/V*.sql are picked up on the next agent restart.
+      - ./migrations/sql:/opt/migrations/sql
     ports:
       - "3000:3000"
     depends_on:
-      migrations:
-        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
     networks:
       - dogeclaw
 

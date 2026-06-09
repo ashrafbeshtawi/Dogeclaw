@@ -10,7 +10,6 @@
 
 <p align="center">
   <a href="https://github.com/ashrafbeshtawi/Dogeclaw/pkgs/container/dogeclaw"><img alt="agent image" src="https://img.shields.io/badge/ghcr.io-dogeclaw-blue"></a>
-  <a href="https://github.com/ashrafbeshtawi/Dogeclaw/pkgs/container/dogeclaw-migrations"><img alt="migrations image" src="https://img.shields.io/badge/ghcr.io-dogeclaw--migrations-blue"></a>
   <img alt="license" src="https://img.shields.io/badge/license-MIT-green">
 </p>
 
@@ -18,12 +17,11 @@
 
 ## Installation
 
-DogeClaw ships as two public Docker images:
+DogeClaw ships as a single public Docker image:
 
-- `ghcr.io/ashrafbeshtawi/dogeclaw` — the agent (web UI, Telegram, tools, cron)
-- `ghcr.io/ashrafbeshtawi/dogeclaw-migrations` — Flyway with the agent's DB schema baked in
+- `ghcr.io/ashrafbeshtawi/dogeclaw` — agent + web UI + Telegram + cron + tools + SQL migrations (applied in-process on boot)
 
-Both are versioned with semver tags (`vX.Y.Z`) plus `:latest`, and built for `linux/amd64` and `linux/arm64`.
+Versioned with semver tags (`vX.Y.Z`) plus `:latest`, and built for `linux/amd64` and `linux/arm64`. The pre-v2 `dogeclaw-migrations` image is no longer published; v1.x tags stay queryable on GHCR for anyone on the old two-container topology.
 
 You can run DogeClaw two ways:
 
@@ -74,9 +72,9 @@ bin/seed
 
 The script is idempotent — re-running it leaves existing rows alone (or just refreshes the API key / bot token). Either fixture variable can be left blank to skip that piece; missing both is fine and only the skills + agents get seeded.
 
-### Docker (consume the published images)
+### Docker (consume the published image)
 
-For real deployments. Drop the two images into your own `docker-compose.yml` (or k8s manifests) alongside any Postgres 16+ instance, set the env vars, and you're done.
+For real deployments. Drop the agent image into your own `docker-compose.yml` (or k8s manifest) alongside any Postgres 16+ instance, set the env vars, and you're done. SQL migrations run inside the agent container on boot — no separate migrations service needed.
 
 ```yaml
 services:
@@ -93,20 +91,10 @@ services:
       interval: 5s
       retries: 5
 
-  dogeclaw-migrations:
-    image: ghcr.io/ashrafbeshtawi/dogeclaw-migrations:v1.0.0
-    environment:
-      FLYWAY_URL: jdbc:postgresql://postgres:5432/dogeclaw
-      FLYWAY_USER: admin
-      FLYWAY_PASSWORD: ${DB_PASSWORD}
-    depends_on:
-      postgres: { condition: service_healthy }
-    restart: "no"
-
   dogeclaw:
-    image: ghcr.io/ashrafbeshtawi/dogeclaw:v1.0.0
+    image: ghcr.io/ashrafbeshtawi/dogeclaw:v2.0.0
     environment:
-      # Admin role — used for schema/admin queries
+      # Admin role — used for schema/admin queries AND for running migrations
       DOGECLAW_ADMIN_DATABASE_URL: postgres://admin:${DB_PASSWORD}@postgres:5432/dogeclaw
       # Restricted role — used by the agent's query_database tool
       DOGECLAW_DATABASE_URL: postgres://dogeclaw:dogeclaw-agent-pw@postgres:5432/dogeclaw
@@ -122,13 +110,15 @@ services:
     ports:
       - "3000:3000"
     depends_on:
-      dogeclaw-migrations: { condition: service_completed_successfully }
+      postgres: { condition: service_healthy }
 
 volumes:
   postgres_data:
 ```
 
-The migrations image creates a restricted `dogeclaw` Postgres role (default password `dogeclaw-agent-pw` — **rotate in production**) and grants it only what the agent needs. The agent connects with this restricted role for its `query_database` tool, while admin operations use `DOGECLAW_ADMIN_DATABASE_URL`.
+On boot, the agent applies any pending SQL migrations (using `DOGECLAW_ADMIN_DATABASE_URL`) and creates a restricted `dogeclaw` Postgres role (default password `dogeclaw-agent-pw` — **rotate in production** by editing the SQL in V2 or running an `ALTER ROLE` manually after the first boot). The agent connects with this restricted role for its `query_database` tool, while admin operations use `DOGECLAW_ADMIN_DATABASE_URL`. Multi-replica deploys are safe — a Postgres advisory lock serializes the migration step across replicas.
+
+> Upgrading from v1.x? The old `dogeclaw-migrations` Flyway service is no longer needed. Remove it from your compose file when you upgrade — v2 will detect Flyway's history table on first boot and import its rows so V1..V12 don't re-run.
 
 #### Environment variables
 
@@ -217,15 +207,14 @@ dogeclaw/
 │       ├── agent.js        # core agent loop (LLM + tools)
 │       ├── llm.js          # Ollama / OpenRouter / Gemini drivers
 │       ├── lib/            # tiny pure helpers (composeUserText, sessionLock)
-│       ├── db/             # pg pools, schema queries
+│       ├── db/             # pg pools, schema queries, migrate.js
 │       ├── tools/          # built-in tool implementations
 │       ├── cron/           # in-process cron scheduler
 │       ├── channels/       # Telegram (multi-bot, polling/webhook)
 │       ├── mcp/            # MCP stdio clients
 │       └── web/            # Express + SSE chat + REST + admin UI
-└── migrations/             # Flyway image
-    ├── Dockerfile
-    └── sql/
+└── migrations/
+    └── sql/                # V*.sql files; applied in-process on agent boot
         ├── V1__init.sql           # tables: agents, models, channels, skills, agent_skills
         ├── V2__create_role.sql    # CREATE ROLE dogeclaw
         └── V3__grants.sql         # GRANT SELECT / USAGE / CREATE
@@ -233,7 +222,7 @@ dogeclaw/
 
 ## CI/CD
 
-GitHub Actions builds and publishes both images to GHCR on every push to `main` (`:latest`) and on every git tag matching `v*` (`:vX.Y.Z` and `:latest`). Builds are multi-arch (`linux/amd64` + `linux/arm64`).
+GitHub Actions builds and publishes the agent image to GHCR on every push to `main` (`:main`) and on every git tag matching `v*` (`:vX.Y.Z`, `:X.Y`, `:X`, and `:latest`). Builds are multi-arch (`linux/amd64` + `linux/arm64`).
 
 Cut a release:
 ```bash
