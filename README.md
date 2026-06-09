@@ -92,7 +92,7 @@ services:
       retries: 5
 
   dogeclaw:
-    image: ghcr.io/ashrafbeshtawi/dogeclaw:v2.1.0
+    image: ghcr.io/ashrafbeshtawi/dogeclaw:v2.0.1
     environment:
       # Postgres — the agent derives the two connection URLs (admin and
       # restricted-role) from these primitives. POSTGRES_HOST / POSTGRES_PORT
@@ -125,7 +125,7 @@ On boot, the agent applies any pending SQL migrations (connecting with the crede
 
 > Upgrading from v1.x? The old `dogeclaw-migrations` Flyway service is no longer needed. Remove it from your compose file when you upgrade — v2 will detect Flyway's history table on first boot and import its rows so V1..V12 don't re-run.
 
-> Upgrading from v2.0.0? You can stop setting `DOGECLAW_ADMIN_DATABASE_URL` and `DOGECLAW_DATABASE_URL` — the agent now derives them from `POSTGRES_*`. The old env vars still work as overrides if you don't want to switch.
+> **Upgrading from v2.0.0?** The `DOGECLAW_ADMIN_DATABASE_URL` and `DOGECLAW_DATABASE_URL` env vars are gone. Replace them with `POSTGRES_HOST` / `POSTGRES_PORT` / `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` as shown above.
 
 #### Hardening: rotating the restricted role's password
 
@@ -134,8 +134,6 @@ The `dogeclaw` Postgres role is created with a default, well-known password (`do
 1. **In the database:** `psql … -c "ALTER ROLE dogeclaw WITH PASSWORD '<new-password>';"` against your running Postgres.
 2. **In the source:** edit `AGENT_DB_PASSWORD` in [`agent/src/lib/databaseUrls.js`](agent/src/lib/databaseUrls.js) and the `'dogeclaw-agent-pw'` literal in [`migrations/sql/V2__create_role.sql`](migrations/sql/V2__create_role.sql), then rebuild and republish the image (or fork and ship from your own registry).
 3. **Restart** the agent container so it picks up the new constant.
-
-If you'd rather not rebuild, you can keep using the old `DOGECLAW_DATABASE_URL` env var as a runtime override — set it to `postgres://dogeclaw:<new-password>@<host>:<port>/<db>` and the agent will skip the derivation step for the restricted pool.
 
 #### Environment variables
 

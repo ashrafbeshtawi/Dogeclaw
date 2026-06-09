@@ -42,24 +42,6 @@ test.describe('buildDatabaseUrls', () => {
     expect(agentUrl).toBe('postgres://dogeclaw:dogeclaw-agent-pw@db.internal:6432/prod');
   });
 
-  test('DOGECLAW_ADMIN_DATABASE_URL wins as override (v2.0.0 backward compat)', () => {
-    const { adminUrl, agentUrl } = buildDatabaseUrls({
-      POSTGRES_USER: 'ignored',
-      POSTGRES_PASSWORD: 'ignored',
-      DOGECLAW_ADMIN_DATABASE_URL: 'postgres://override:pw@host:1111/db',
-    });
-    expect(adminUrl).toBe('postgres://override:pw@host:1111/db');
-    // The agent URL is still derived from primitives unless DOGECLAW_DATABASE_URL is also set.
-    expect(agentUrl).toBe('postgres://dogeclaw:dogeclaw-agent-pw@postgres:5432/dogeclaw');
-  });
-
-  test('DOGECLAW_DATABASE_URL wins as override for the agent URL', () => {
-    const { agentUrl } = buildDatabaseUrls({
-      DOGECLAW_DATABASE_URL: 'postgres://dogeclaw:rotated@host:5432/db',
-    });
-    expect(agentUrl).toBe('postgres://dogeclaw:rotated@host:5432/db');
-  });
-
   test('percent-encodes special characters in password and database name', () => {
     const { adminUrl } = buildDatabaseUrls({
       POSTGRES_USER: 'with space',
