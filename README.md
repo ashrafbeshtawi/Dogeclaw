@@ -92,12 +92,17 @@ services:
       retries: 5
 
   dogeclaw:
-    image: ghcr.io/ashrafbeshtawi/dogeclaw:v2.0.0
+    image: ghcr.io/ashrafbeshtawi/dogeclaw:v2.1.0
     environment:
-      # Admin role — used for schema/admin queries AND for running migrations
-      DOGECLAW_ADMIN_DATABASE_URL: postgres://admin:${DB_PASSWORD}@postgres:5432/dogeclaw
-      # Restricted role — used by the agent's query_database tool
-      DOGECLAW_DATABASE_URL: postgres://dogeclaw:dogeclaw-agent-pw@postgres:5432/dogeclaw
+      # Postgres — the agent derives the two connection URLs (admin and
+      # restricted-role) from these primitives. POSTGRES_HOST / POSTGRES_PORT
+      # default to `postgres` / `5432` (the in-network address used by the
+      # local-dev compose); override if your DB lives elsewhere.
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: dogeclaw
       # Web UI auth
       DOGECLAW_WEB_USER: admin
       DOGECLAW_WEB_PASSWORD: ${WEB_PASSWORD}
@@ -116,16 +121,31 @@ volumes:
   postgres_data:
 ```
 
-On boot, the agent applies any pending SQL migrations (using `DOGECLAW_ADMIN_DATABASE_URL`) and creates a restricted `dogeclaw` Postgres role (default password `dogeclaw-agent-pw` — **rotate in production** by editing the SQL in V2 or running an `ALTER ROLE` manually after the first boot). The agent connects with this restricted role for its `query_database` tool, while admin operations use `DOGECLAW_ADMIN_DATABASE_URL`. Multi-replica deploys are safe — a Postgres advisory lock serializes the migration step across replicas.
+On boot, the agent applies any pending SQL migrations (connecting with the credentials above) and creates a restricted `dogeclaw` Postgres role with a fixed password (`dogeclaw-agent-pw`). The agent connects with this restricted role for its `query_database` tool, while admin operations use the `POSTGRES_USER` you set above. Multi-replica deploys are safe — a Postgres advisory lock serializes the migration step across replicas.
 
 > Upgrading from v1.x? The old `dogeclaw-migrations` Flyway service is no longer needed. Remove it from your compose file when you upgrade — v2 will detect Flyway's history table on first boot and import its rows so V1..V12 don't re-run.
+
+> Upgrading from v2.0.0? You can stop setting `DOGECLAW_ADMIN_DATABASE_URL` and `DOGECLAW_DATABASE_URL` — the agent now derives them from `POSTGRES_*`. The old env vars still work as overrides if you don't want to switch.
+
+#### Hardening: rotating the restricted role's password
+
+The `dogeclaw` Postgres role is created with a default, well-known password (`dogeclaw-agent-pw`) so the agent can connect without extra configuration. For a hardened production deploy you should rotate it. The agent's source treats this password as a build-time constant, so rotation is a deliberate three-step process:
+
+1. **In the database:** `psql … -c "ALTER ROLE dogeclaw WITH PASSWORD '<new-password>';"` against your running Postgres.
+2. **In the source:** edit `AGENT_DB_PASSWORD` in [`agent/src/lib/databaseUrls.js`](agent/src/lib/databaseUrls.js) and the `'dogeclaw-agent-pw'` literal in [`migrations/sql/V2__create_role.sql`](migrations/sql/V2__create_role.sql), then rebuild and republish the image (or fork and ship from your own registry).
+3. **Restart** the agent container so it picks up the new constant.
+
+If you'd rather not rebuild, you can keep using the old `DOGECLAW_DATABASE_URL` env var as a runtime override — set it to `postgres://dogeclaw:<new-password>@<host>:<port>/<db>` and the agent will skip the derivation step for the restricted pool.
 
 #### Environment variables
 
 | Variable | Required | Default | Description |
 | --- | --- | --- | --- |
-| `DOGECLAW_ADMIN_DATABASE_URL` | yes | — | Postgres URL with admin privileges |
-| `DOGECLAW_DATABASE_URL` | yes | — | Postgres URL using the restricted `dogeclaw` role |
+| `POSTGRES_HOST` | no | `postgres` | DB host the agent connects to |
+| `POSTGRES_PORT` | no | `5432` | DB port |
+| `POSTGRES_USER` | yes | `admin` | Admin/superuser name (also runs migrations) |
+| `POSTGRES_PASSWORD` | yes | `changeme` | Admin password |
+| `POSTGRES_DB` | yes | `dogeclaw` | Database name |
 | `DOGECLAW_WEB_USER` | yes | `admin` | Web UI login |
 | `DOGECLAW_WEB_PASSWORD` | yes | `changeme` | Web UI password |
 | `DOGECLAW_WEB_SECRET` | yes | — | Session secret (`openssl rand -hex 32`) |

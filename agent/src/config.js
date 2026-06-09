@@ -1,3 +1,5 @@
+import { buildDatabaseUrls } from './lib/databaseUrls.js';
+
 const env = process.env;
 
 const config = {
@@ -10,10 +12,10 @@ const config = {
     password: env.DOGECLAW_WEB_PASSWORD || 'changeme',
     secret: env.DOGECLAW_WEB_SECRET || 'dogeclaw-default-secret-change-me',
   },
-  database: {
-    adminUrl: env.DOGECLAW_ADMIN_DATABASE_URL || env.DOGECLAW_DATABASE_URL || null,
-    agentUrl: env.DOGECLAW_DATABASE_URL || null,
-  },
+  // URLs are derived from POSTGRES_* primitives (see lib/databaseUrls.js).
+  // DOGECLAW_ADMIN_DATABASE_URL / DOGECLAW_DATABASE_URL are still honored
+  // as overrides for backward-compat with v2.0.0 deploys.
+  database: buildDatabaseUrls(env),
   telegram: {
     mode: env.DOGECLAW_TELEGRAM_MODE || 'polling',
     webhookUrl: env.DOGECLAW_WEBHOOK_URL || '',

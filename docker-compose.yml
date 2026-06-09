@@ -41,8 +41,12 @@ services:
       - DOGECLAW_WEB_USER=${DOGECLAW_WEB_USER:-admin}
       - DOGECLAW_WEB_PASSWORD=${DOGECLAW_WEB_PASSWORD:-changeme}
       - DOGECLAW_WEB_SECRET=${DOGECLAW_WEB_SECRET:-dogeclaw-change-me}
-      - DOGECLAW_ADMIN_DATABASE_URL=postgres://${POSTGRES_USER:-admin}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/${POSTGRES_DB:-dogeclaw}
-      - DOGECLAW_DATABASE_URL=postgres://dogeclaw:dogeclaw-agent-pw@postgres:5432/${POSTGRES_DB:-dogeclaw}
+      # The agent derives both Postgres URLs (admin + restricted role) from
+      # these primitives — see agent/src/lib/databaseUrls.js. The restricted
+      # role's password is hardcoded there to mirror V2__create_role.sql.
+      - POSTGRES_USER=${POSTGRES_USER:-admin}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-changeme}
+      - POSTGRES_DB=${POSTGRES_DB:-dogeclaw}
       - DOGECLAW_OLLAMA_URL=${DOGECLAW_OLLAMA_URL:-}
       - DOGECLAW_TELEGRAM_MODE=${DOGECLAW_TELEGRAM_MODE:-polling}
       - DOGECLAW_WEBHOOK_URL=${DOGECLAW_WEBHOOK_URL:-}
