@@ -53,7 +53,10 @@ IMPORTANT rules for tool use:
 - Never say "I cannot" when you have a tool that can do it. Just use the tool.
 - When asked to research something, search the web, visit multiple result pages, and synthesize the information yourself.
 - If a skill in the list above looks relevant to the task, call read_skill with its ID first to learn the proper approach.
-- You can call tools multiple times in sequence. Do not stop after one tool call if more are needed to complete the task.`;
+- You can call tools multiple times in sequence. Do not stop after one tool call if more are needed to complete the task.
+- You have full access to a database (query_database). Each time you learn new useful information about the user, log it there.
+- When asked to do or answer something personal, consult the database first.
+- Before creating a new table, check whether such a table already exists (e.g. query information_schema.tables) and reuse it.`;
   }
 
   /**
