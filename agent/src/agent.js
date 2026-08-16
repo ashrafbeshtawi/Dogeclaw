@@ -2,6 +2,8 @@ import { chat, chatStream } from './llm.js';
 import config from './config.js';
 import { listSkillsForAgent } from './tools/skills.js';
 import { composeUserText } from './lib/composeUserText.js';
+import { timestampNote } from './lib/timestamp.js';
+import { getTimezone } from './db/settings.js';
 
 const MAX_ITERATIONS = 10;
 
@@ -40,7 +42,6 @@ export class Agent {
 
     return `${base}
 
-Current date: ${new Date().toISOString().split('T')[0]}
 Workspace: ${config.paths.files}
 
 You have the following tools available. Use them whenever needed — do not say you lack capabilities:
@@ -80,9 +81,18 @@ IMPORTANT rules for tool use:
     const provider = mc.provider || 'ollama';
     const onEvent = opts.onEvent || null;
 
-    const processedMessage = opts.triggerNote
-      ? userMessage
+    // Stamp every outgoing message (manual, telegram, cron) with the current
+    // date & time so the model knows "now". Appended here — the single
+    // chokepoint all send paths route through — and never persisted: callers
+    // store the raw user text before calling run().
+    const stamp = timestampNote(await getTimezone());
+
+    const composed = opts.triggerNote
+      ? null
       : composeUserText(userMessage, opts, accepts);
+    const processedMessage = composed
+      ? `${composed}\n\n${stamp}`
+      : stamp;
 
     const systemContent = opts.systemNote
       ? `${systemPrompt}\n\nNote: ${opts.systemNote}`
@@ -91,7 +101,7 @@ IMPORTANT rules for tool use:
     const messages = [{ role: 'system', content: systemContent }, ...history];
 
     if (opts.triggerNote) {
-      messages.push({ role: 'system', content: opts.triggerNote });
+      messages.push({ role: 'system', content: `${opts.triggerNote}\n\n${stamp}` });
     } else {
       const userMsg = { role: 'user', content: processedMessage };
       // Attach media the model claims to accept. The LLM layer is responsible
