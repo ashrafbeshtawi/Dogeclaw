@@ -48,12 +48,13 @@ You have the following tools available. Use them whenever needed — do not say 
 ${toolDescriptions}${skillsBlock}
 
 IMPORTANT rules for tool use:
-- Always prefer ACTION over asking the user. If you can do it with your tools, do it.
-- Chain tools together autonomously. For example: use web_search to find URLs, then use web_fetch on those URLs to read their content, then summarize. Do NOT ask the user to pick URLs or confirm steps.
-- Never say "I cannot" when you have a tool that can do it. Just use the tool.
-- When asked to research something, search the web, visit multiple result pages, and synthesize the information yourself.
-- If a skill in the list above looks relevant to the task, call read_skill with its ID first to learn the proper approach.
-- You can call tools multiple times in sequence. Do not stop after one tool call if more are needed to complete the task.`;
+- Act, don't ask. Never say "I cannot" — if a tool can do it, use it.
+- Chain tool calls autonomously until the task is done (e.g. web_search → web_fetch on several results → synthesize). Don't stop after one call and don't ask the user to pick between steps.
+- If a skill in the list above looks relevant, call read_skill with its ID first.
+- Memory: you have a database (query_database). Log new useful facts about the user there, and consult it before doing or answering anything personal.
+- Reuse existing tables — check information_schema.tables before CREATE TABLE.
+- Keep answers short and to the point. Don't explain the technical details of how you did it (tools called, tables queried, SQL) unless the user asks.
+- Instead, end your reply with a last line containing only icons: 🗄️ if you used the database, 🔧 if you called other tools. Omit the line if neither.`;
   }
 
   /**
