@@ -35,6 +35,12 @@ jobs:
           cache: npm
           cache-dependency-path: tests/package-lock.json
 
+      # Stdlib-only (node:test) — needs no npm install, no docker stack.
+      # Runs first so unit failures fail fast before the stack boots.
+      - name: Unit tests (agent)
+        working-directory: ./agent
+        run: npm test
+
       - name: Install test dependencies
         working-directory: ./tests
         run: npm ci
