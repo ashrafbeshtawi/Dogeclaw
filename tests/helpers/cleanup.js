@@ -14,6 +14,7 @@ function clearTestData() {
     DELETE FROM agents      WHERE name LIKE 'pw-%';
     DELETE FROM skills      WHERE name LIKE 'pw-%';
     DELETE FROM models      WHERE name LIKE 'pw-%';
+    DELETE FROM settings    WHERE key  LIKE 'pw-%';
   `);
 }
 

@@ -35,6 +35,7 @@ purges those rows before each run.
 | `specs/crons.spec.js` | cron CRUD, validation, FK cascade |
 | `specs/settings.spec.js` | timezone select, persistence, cron-modal default |
 | `specs/sessions.spec.js` | chat UI session list + cron-warning dialog |
+| `specs/functional-api.spec.js` | API contracts: auth gating, 400/404s, FK semantics |
 | `specs/message-timestamp.spec.js` | date/time note appended to every outgoing LLM message |
 
 ## Notes
