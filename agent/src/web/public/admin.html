@@ -1,75 +1,20 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dogeclaw">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DogeClaw - Admin</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0a0a0f; color: #e2e8f0; min-height: 100vh; background-image: radial-gradient(ellipse at 50% 0%, rgba(220,38,38,0.06) 0%, transparent 50%); }
-        .topbar { padding: 1rem 2rem; border-bottom: 1px solid rgba(255,255,255,0.05); display: flex; align-items: center; gap: 0.75rem; background: #0e0e16; }
-        .topbar img { width: 32px; }
-        .topbar h1 { font-size: 1.15rem; font-weight: 800; letter-spacing: -0.02em; flex: 1; }
-        .topbar a { color: #dc2626; font-size: 0.85rem; text-decoration: none; font-weight: 600; transition: opacity 0.15s; }
-        .topbar a:hover { opacity: 0.8; }
-        .container { max-width: 960px; margin: 0 auto; padding: 1.25rem 2rem 2rem; }
-        .tabs { display: flex; gap: 0.25rem; max-width: 960px; margin: 0 auto; padding: 0 2rem; border-bottom: 1px solid rgba(255,255,255,0.05); overflow-x: auto; }
-        .tab-button { padding: 0.85rem 1.1rem; background: transparent; border: none; color: #64748b; font-size: 0.85rem; font-weight: 600; cursor: pointer; border-bottom: 2px solid transparent; transition: color 0.15s, border-color 0.15s; white-space: nowrap; }
-        .tab-button:hover { color: #e2e8f0; }
-        .tab-button.active { color: #fca5a5; border-bottom-color: #dc2626; }
-        .section { margin-bottom: 0; display: none; }
-        .section.active { display: block; }
-        .section-header { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem; }
-        .section-header h2 { font-size: 1rem; font-weight: 700; }
-        .section-header button { background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%); color: #fff; border: none; border-radius: 8px; padding: 0.35rem 0.8rem; font-size: 0.75rem; cursor: pointer; font-weight: 700; transition: box-shadow 0.2s; }
-        .section-header button:hover { box-shadow: 0 4px 15px rgba(220,38,38,0.3); }
-        table { width: 100%; border-collapse: collapse; background: #0e0e16; border-radius: 12px; overflow: hidden; border: 1px solid rgba(255,255,255,0.05); }
-        th, td { padding: 0.65rem 1rem; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.04); font-size: 0.85rem; }
-        th { color: #64748b; font-weight: 600; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; background: rgba(255,255,255,0.02); }
-        tr:hover td { background: rgba(255,255,255,0.015); }
-        td .actions { display: flex; gap: 0.4rem; }
-        td .actions button { background: transparent; border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; color: #94a3b8; padding: 0.25rem 0.6rem; font-size: 0.75rem; cursor: pointer; transition: all 0.15s; }
-        td .actions button:hover { border-color: rgba(255,255,255,0.2); color: #e2e8f0; }
-        td .actions button.danger { color: #f87171; border-color: rgba(248,113,113,0.2); }
-        td .actions button.danger:hover { background: rgba(248,113,113,0.08); }
-        .badge { font-size: 0.65rem; padding: 0.2rem 0.5rem; border-radius: 5px; font-weight: 600; }
-        .badge-on { background: rgba(52,211,153,0.12); color: #34d399; }
-        .badge-off { background: rgba(248,113,113,0.12); color: #f87171; }
-        .badge-tag { background: rgba(96,165,250,0.1); color: #60a5fa; margin-right: 0.2rem; }
-        .hint { font-size: 0.75rem; color: #475569; margin-top: 0.75rem; padding-left: 0.25rem; }
-        .hint code { color: #dc2626; background: rgba(220,38,38,0.08); padding: 0.1rem 0.3rem; border-radius: 3px; font-size: 0.7rem; }
-
-        /* Modal */
-        .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 100; align-items: center; justify-content: center; backdrop-filter: blur(4px); }
-        .modal-overlay.open { display: flex; }
-        .modal { background: #12121c; border: 1px solid rgba(220,38,38,0.12); border-radius: 16px; padding: 1.75rem; width: 100%; max-width: 500px; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.5); }
-        .modal h3 { margin-bottom: 1.25rem; font-size: 1rem; font-weight: 700; }
-        .modal label { display: block; font-size: 0.8rem; color: #94a3b8; margin-bottom: 0.3rem; margin-top: 0.85rem; }
-        .modal input, .modal select, .modal textarea { width: 100%; padding: 0.55rem 0.75rem; border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; background: rgba(255,255,255,0.03); color: #e2e8f0; font-size: 0.85rem; font-family: inherit; outline: none; transition: border-color 0.2s; }
-        .modal input:focus, .modal select:focus, .modal textarea:focus { border-color: rgba(220,38,38,0.4); }
-        .modal textarea { min-height: 80px; resize: vertical; }
-        .modal .toggle { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.4rem; }
-        .modal .toggle input { width: auto; accent-color: #dc2626; }
-        .modal .checks { display: flex; gap: 1rem; margin-top: 0.4rem; flex-wrap: wrap; }
-        .modal .checks label { display: flex; align-items: center; gap: 0.3rem; margin: 0; font-size: 0.8rem; }
-        .modal .checks input { width: auto; accent-color: #dc2626; }
-        .modal .field-hint { font-size: 0.7rem; color: #475569; margin-top: 0.25rem; }
-        .modal .btn-row { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1.5rem; }
-        .modal .btn-row button { padding: 0.55rem 1.1rem; border-radius: 8px; border: none; cursor: pointer; font-size: 0.85rem; font-weight: 600; transition: all 0.15s; }
-        .modal .btn-cancel { background: transparent; border: 1px solid rgba(255,255,255,0.08); color: #94a3b8; }
-        .modal .btn-cancel:hover { border-color: rgba(255,255,255,0.15); color: #e2e8f0; }
-        .modal .btn-save { background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%); color: #fff; }
-        .modal .btn-save:hover { box-shadow: 0 4px 15px rgba(220,38,38,0.3); }
-    </style>
+    <link rel="icon" type="image/png" href="/static/logo.png">
+    <link rel="stylesheet" href="/static/app.css">
 </head>
-<body>
-    <div class="topbar">
-        <img src="/static/logo.png" alt="DogeClaw">
-        <h1>Admin</h1>
-        <a href="/">&larr; Back to Chat</a>
+<body class="min-h-screen bg-base-200 text-base-content">
+    <div class="navbar min-h-0 py-3 px-6 gap-3 bg-base-100 border-b border-white/5">
+        <a href="/" title="Back to Chat"><img src="/static/logo.png" alt="DogeClaw" class="w-12 transition-transform hover:scale-105"></a>
+        <h1 class="text-lg font-extrabold tracking-tight flex-1">Admin</h1>
+        <a href="/" class="link no-underline text-primary text-sm font-semibold hover:opacity-80">&larr; Back to Chat</a>
     </div>
 
-    <div class="tabs">
+    <div class="flex gap-1 max-w-4xl mx-auto px-6 border-b border-white/5 overflow-x-auto">
         <button class="tab-button" data-tab="models" onclick="showTab('models')">Models</button>
         <button class="tab-button" data-tab="agents" onclick="showTab('agents')">Agents</button>
         <button class="tab-button" data-tab="skills" onclick="showTab('skills')">Skills</button>
@@ -79,114 +24,128 @@
         <button class="tab-button" data-tab="settings" onclick="showTab('settings')">Settings</button>
     </div>
 
-    <div class="container">
+    <div class="max-w-4xl mx-auto px-6 pt-5 pb-8">
         <!-- Models -->
         <div class="section" id="tab-models">
-            <div class="section-header">
-                <h2>Models</h2>
-                <button onclick="openModelModal()">+ New Model</button>
+            <div class="flex items-center gap-3 mb-4">
+                <h2 class="text-base font-bold">Models</h2>
+                <button class="btn btn-primary btn-sm" onclick="openModelModal()">+ New Model</button>
             </div>
-            <table>
-                <thead><tr><th>Name</th><th>Provider</th><th>Model ID</th><th>Think</th><th>Accepts</th><th></th></tr></thead>
-                <tbody id="modelsTable"></tbody>
-            </table>
+            <div class="overflow-x-auto rounded-2xl border border-white/5 bg-base-100">
+                <table class="table table-sm">
+                    <thead><tr><th>Name</th><th>Provider</th><th>Model ID</th><th>Think</th><th>Accepts</th><th></th></tr></thead>
+                    <tbody id="modelsTable"></tbody>
+                </table>
+            </div>
         </div>
 
         <!-- Agents -->
         <div class="section" id="tab-agents">
-            <div class="section-header">
-                <h2>Agents</h2>
-                <button onclick="openAgentModal()">+ New Agent</button>
+            <div class="flex items-center gap-3 mb-4">
+                <h2 class="text-base font-bold">Agents</h2>
+                <button class="btn btn-primary btn-sm" onclick="openAgentModal()">+ New Agent</button>
             </div>
-            <table>
-                <thead><tr><th>Name</th><th>Model</th><th>System Prompt</th><th></th></tr></thead>
-                <tbody id="agentsTable"></tbody>
-            </table>
+            <div class="overflow-x-auto rounded-2xl border border-white/5 bg-base-100">
+                <table class="table table-sm">
+                    <thead><tr><th>Name</th><th>Model</th><th>System Prompt</th><th></th></tr></thead>
+                    <tbody id="agentsTable"></tbody>
+                </table>
+            </div>
         </div>
 
         <!-- Skills -->
         <div class="section" id="tab-skills">
-            <div class="section-header">
-                <h2>Skills</h2>
-                <button onclick="openSkillModal()">+ New Skill</button>
+            <div class="flex items-center gap-3 mb-4">
+                <h2 class="text-base font-bold">Skills</h2>
+                <button class="btn btn-primary btn-sm" onclick="openSkillModal()">+ New Skill</button>
             </div>
-            <table>
-                <thead><tr><th>Name</th><th>Description</th><th>Access</th><th></th></tr></thead>
-                <tbody id="skillsTable"></tbody>
-            </table>
+            <div class="overflow-x-auto rounded-2xl border border-white/5 bg-base-100">
+                <table class="table table-sm">
+                    <thead><tr><th>Name</th><th>Description</th><th>Access</th><th></th></tr></thead>
+                    <tbody id="skillsTable"></tbody>
+                </table>
+            </div>
             <div class="hint">Skills with no assigned agents are public (available to all). Assign agents to restrict access.</div>
         </div>
 
         <!-- Channels -->
         <div class="section" id="tab-channels">
-            <div class="section-header">
-                <h2>Channels</h2>
-                <button onclick="openChannelModal()">+ New Channel</button>
+            <div class="flex items-center gap-3 mb-4">
+                <h2 class="text-base font-bold">Channels</h2>
+                <button class="btn btn-primary btn-sm" onclick="openChannelModal()">+ New Channel</button>
             </div>
-            <table>
-                <thead><tr><th>Name</th><th>Type</th><th>Agent</th><th>Mode</th><th>Enabled</th><th></th></tr></thead>
-                <tbody id="channelsTable"></tbody>
-            </table>
+            <div class="overflow-x-auto rounded-2xl border border-white/5 bg-base-100">
+                <table class="table table-sm">
+                    <thead><tr><th>Name</th><th>Type</th><th>Agent</th><th>Mode</th><th>Enabled</th><th></th></tr></thead>
+                    <tbody id="channelsTable"></tbody>
+                </table>
+            </div>
             <div class="hint" id="telegramModeHint"></div>
         </div>
 
         <!-- Cron Jobs -->
         <div class="section" id="tab-crons">
-            <div class="section-header">
-                <h2>Cron Jobs</h2>
-                <button onclick="openCronModal()">+ New Job</button>
+            <div class="flex items-center gap-3 mb-4">
+                <h2 class="text-base font-bold">Cron Jobs</h2>
+                <button class="btn btn-primary btn-sm" onclick="openCronModal()">+ New Job</button>
             </div>
-            <table>
-                <thead><tr><th>ID</th><th>Agent</th><th>Target</th><th>Schedule</th><th>Prompt</th><th>Last run</th><th>Enabled</th><th></th></tr></thead>
-                <tbody id="cronsTable"></tbody>
-            </table>
+            <div class="overflow-x-auto rounded-2xl border border-white/5 bg-base-100">
+                <table class="table table-sm">
+                    <thead><tr><th>ID</th><th>Agent</th><th>Target</th><th>Schedule</th><th>Prompt</th><th>Last run</th><th>Enabled</th><th></th></tr></thead>
+                    <tbody id="cronsTable"></tbody>
+                </table>
+            </div>
             <div class="hint">Recurring uses standard cron syntax. One-shots auto-disable after firing. Web-session jobs are deleted with their session; channel jobs survive session resets.</div>
         </div>
 
         <!-- Events -->
         <div class="section" id="tab-events">
-            <div class="section-header">
-                <h2>Events</h2>
-                <select id="eventsKindFilter" onchange="loadEvents()" style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:6px;color:#e2e8f0;padding:0.3rem 0.6rem;font-size:0.8rem">
+            <div class="flex items-center gap-3 mb-4">
+                <h2 class="text-base font-bold">Events</h2>
+                <select id="eventsKindFilter" onchange="loadEvents()" class="select select-sm w-40">
                     <option value="">All kinds</option>
                     <option value="cron_run">Cron runs</option>
                 </select>
-                <button onclick="loadEvents()" style="background:rgba(255,255,255,0.05);color:#e2e8f0;border:1px solid rgba(255,255,255,0.08)">Refresh</button>
-                <button class="danger" onclick="clearEvents()" style="background:rgba(248,113,113,0.08);color:#f87171;border:1px solid rgba(248,113,113,0.2)">Clear filtered</button>
+                <button class="btn btn-ghost btn-sm border border-white/10" onclick="loadEvents()">Refresh</button>
+                <button class="btn btn-outline btn-error btn-sm danger" onclick="clearEvents()">Clear filtered</button>
             </div>
-            <table>
-                <thead><tr><th>When</th><th>Kind</th><th>Status</th><th>Ref</th><th>Duration</th><th>Preview</th><th></th></tr></thead>
-                <tbody id="eventsTable"></tbody>
-            </table>
+            <div class="overflow-x-auto rounded-2xl border border-white/5 bg-base-100">
+                <table class="table table-sm">
+                    <thead><tr><th>When</th><th>Kind</th><th>Status</th><th>Ref</th><th>Duration</th><th>Preview</th><th></th></tr></thead>
+                    <tbody id="eventsTable"></tbody>
+                </table>
+            </div>
             <div class="hint">Auto-pruned after <code id="eventsRetentionLabel">14</code> day(s) by the background cleanup tick. Adjust on the Settings tab.</div>
         </div>
 
         <!-- Settings -->
         <div class="section" id="tab-settings">
-            <div class="section-header">
-                <h2>Settings</h2>
+            <div class="flex items-center gap-3 mb-4">
+                <h2 class="text-base font-bold">Settings</h2>
             </div>
-            <table>
-                <tbody>
-                    <tr>
-                        <td style="width:200px"><strong>Timezone</strong></td>
-                        <td><select id="settingTimezone" style="width:280px;padding:0.4rem 0.6rem;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:6px;color:#e2e8f0;font-family:inherit;font-size:0.85rem"></select></td>
-                        <td><button onclick="saveTimezone()" style="background:linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);color:#fff;border:none;border-radius:8px;padding:0.35rem 0.8rem;font-size:0.75rem;cursor:pointer;font-weight:700">Save</button></td>
-                    </tr>
-                    <tr>
-                        <td><strong>Event log retention (days)</strong></td>
-                        <td><input type="number" id="settingEventRetention" min="1" step="1" style="width:120px;padding:0.4rem 0.6rem;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:6px;color:#e2e8f0;font-family:inherit;font-size:0.85rem"></td>
-                        <td><button onclick="saveEventRetention()" style="background:linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);color:#fff;border:none;border-radius:8px;padding:0.35rem 0.8rem;font-size:0.75rem;cursor:pointer;font-weight:700">Save</button></td>
-                    </tr>
-                </tbody>
-            </table>
+            <div class="overflow-x-auto rounded-2xl border border-white/5 bg-base-100">
+                <table class="table table-sm">
+                    <tbody>
+                        <tr>
+                            <td class="w-52"><strong>Timezone</strong></td>
+                            <td><select id="settingTimezone" class="select select-sm w-72"></select></td>
+                            <td><button class="btn btn-primary btn-xs" onclick="saveTimezone()">Save</button></td>
+                        </tr>
+                        <tr>
+                            <td><strong>Event log retention (days)</strong></td>
+                            <td><input type="number" id="settingEventRetention" min="1" step="1" class="input input-sm w-28"></td>
+                            <td><button class="btn btn-primary btn-xs" onclick="saveEventRetention()">Save</button></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
             <div class="hint">Timezone is the default for new cron jobs. Event log retention controls how long cron-run and audio-transcription logs are kept before the daily cleanup tick deletes them.</div>
         </div>
     </div>
 
     <!-- Model Modal -->
     <div class="modal-overlay" id="modelModal">
-        <div class="modal">
+        <div class="dc-modal">
             <h3 id="modelModalTitle">New Model</h3>
             <input type="hidden" id="modelFormId">
             <label>Name</label>
@@ -205,27 +164,27 @@
                 <label>API Key</label>
                 <input type="password" id="modelApiKey" placeholder="sk-or-...">
             </div>
-            <div class="toggle"><input type="checkbox" id="modelThink"><label for="modelThink">Enable thinking</label></div>
+            <div class="dc-toggle"><input type="checkbox" class="toggle toggle-primary toggle-sm" id="modelThink"><label for="modelThink">Enable thinking</label></div>
             <label>Accepts</label>
             <div class="checks">
-                <label><input type="checkbox" id="acceptText" checked disabled> text</label>
-                <label><input type="checkbox" id="acceptImage"> image</label>
-                <label><input type="checkbox" id="acceptAudio"> audio</label>
-                <label><input type="checkbox" id="acceptVideo"> video</label>
+                <label><input type="checkbox" class="checkbox checkbox-primary checkbox-xs" id="acceptText" checked disabled> text</label>
+                <label><input type="checkbox" class="checkbox checkbox-primary checkbox-xs" id="acceptImage"> image</label>
+                <label><input type="checkbox" class="checkbox checkbox-primary checkbox-xs" id="acceptAudio"> audio</label>
+                <label><input type="checkbox" class="checkbox checkbox-primary checkbox-xs" id="acceptVideo"> video</label>
             </div>
             <div class="field-hint">Pick what the model can ingest directly. Unsupported types become an `[Attached: &lt;type&gt;]` hint in the prompt so the model still knows the user sent something.</div>
-            <div id="testResult" style="margin-top:0.75rem;font-size:0.8rem;display:none;padding:0.5rem 0.7rem;border-radius:6px"></div>
+            <div id="testResult" class="mt-3 text-sm rounded-md px-3 py-2" style="display:none"></div>
             <div class="btn-row">
-                <button class="btn-cancel" onclick="testModel()" style="border-color:rgba(96,165,250,0.3);color:#60a5fa">Test Connection</button>
-                <button class="btn-cancel" onclick="closeModal('modelModal')">Cancel</button>
-                <button class="btn-save" onclick="saveModel()">Save</button>
+                <button class="btn btn-sm btn-outline btn-info btn-cancel" onclick="testModel()">Test Connection</button>
+                <button class="btn btn-sm btn-ghost border border-white/10 btn-cancel" onclick="closeModal('modelModal')">Cancel</button>
+                <button class="btn btn-sm btn-primary btn-save" onclick="saveModel()">Save</button>
             </div>
         </div>
     </div>
 
     <!-- Agent Modal -->
     <div class="modal-overlay" id="agentModal">
-        <div class="modal">
+        <div class="dc-modal">
             <h3 id="agentModalTitle">New Agent</h3>
             <input type="hidden" id="agentId">
             <label>Name</label>
@@ -235,18 +194,18 @@
             <label>System Prompt</label>
             <textarea id="agentPrompt" placeholder="You are a helpful assistant..."></textarea>
             <label>Skills</label>
-            <div id="agentSkillsCheckboxes" style="max-height:160px;overflow-y:auto;border:1px solid rgba(255,255,255,0.08);border-radius:6px;padding:0.5rem;background:rgba(255,255,255,0.02)"></div>
+            <div id="agentSkillsCheckboxes" class="max-h-40 overflow-y-auto border border-white/10 rounded-md p-2 bg-white/[0.02]"></div>
             <div class="field-hint">Select skills to assign. Unselected public skills are still available.</div>
             <div class="btn-row">
-                <button class="btn-cancel" onclick="closeModal('agentModal')">Cancel</button>
-                <button class="btn-save" onclick="saveAgent()">Save</button>
+                <button class="btn btn-sm btn-ghost border border-white/10 btn-cancel" onclick="closeModal('agentModal')">Cancel</button>
+                <button class="btn btn-sm btn-primary btn-save" onclick="saveAgent()">Save</button>
             </div>
         </div>
     </div>
 
     <!-- Skill Modal -->
     <div class="modal-overlay" id="skillModal">
-        <div class="modal">
+        <div class="dc-modal">
             <h3 id="skillModalTitle">New Skill</h3>
             <input type="hidden" id="skillFormId">
             <label>Name</label>
@@ -254,19 +213,19 @@
             <label>Description</label>
             <input type="text" id="skillDescription" placeholder="Best practices for Python development">
             <label>Content</label>
-            <textarea id="skillContent" placeholder="Detailed instructions, code patterns, references..." style="min-height:160px"></textarea>
+            <textarea id="skillContent" placeholder="Detailed instructions, code patterns, references..." class="min-h-40"></textarea>
             <label>Assigned Agents (empty = available to all)</label>
-            <div id="skillAgentsCheckboxes" style="max-height:120px;overflow-y:auto;border:1px solid rgba(255,255,255,0.08);border-radius:6px;padding:0.5rem;background:rgba(255,255,255,0.02)"></div>
+            <div id="skillAgentsCheckboxes" class="max-h-32 overflow-y-auto border border-white/10 rounded-md p-2 bg-white/[0.02]"></div>
             <div class="btn-row">
-                <button class="btn-cancel" onclick="closeModal('skillModal')">Cancel</button>
-                <button class="btn-save" onclick="saveSkill()">Save</button>
+                <button class="btn btn-sm btn-ghost border border-white/10 btn-cancel" onclick="closeModal('skillModal')">Cancel</button>
+                <button class="btn btn-sm btn-primary btn-save" onclick="saveSkill()">Save</button>
             </div>
         </div>
     </div>
 
     <!-- Cron Modal -->
     <div class="modal-overlay" id="cronModal">
-        <div class="modal">
+        <div class="dc-modal">
             <h3 id="cronModalTitle">New Cron Job</h3>
             <input type="hidden" id="cronId">
 
@@ -320,19 +279,19 @@
             <label>Prompt</label>
             <textarea id="cronPrompt" placeholder="Instruction given to the agent when the job fires..."></textarea>
 
-            <div class="toggle"><input type="checkbox" id="cronEnabled" checked><label for="cronEnabled">Enabled</label></div>
-            <div class="field-hint" id="cronEditHint" style="display:none;color:#fca5a5">Target (agent, channel/session, chat id) cannot be changed after creation.</div>
+            <div class="dc-toggle"><input type="checkbox" class="toggle toggle-primary toggle-sm" id="cronEnabled" checked><label for="cronEnabled">Enabled</label></div>
+            <div class="field-hint text-accent" id="cronEditHint" style="display:none">Target (agent, channel/session, chat id) cannot be changed after creation.</div>
 
             <div class="btn-row">
-                <button class="btn-cancel" onclick="closeModal('cronModal')">Cancel</button>
-                <button class="btn-save" onclick="saveCron()">Save</button>
+                <button class="btn btn-sm btn-ghost border border-white/10 btn-cancel" onclick="closeModal('cronModal')">Cancel</button>
+                <button class="btn btn-sm btn-primary btn-save" onclick="saveCron()">Save</button>
             </div>
         </div>
     </div>
 
     <!-- Channel Modal -->
     <div class="modal-overlay" id="channelModal">
-        <div class="modal">
+        <div class="dc-modal">
             <h3 id="channelModalTitle">New Channel</h3>
             <input type="hidden" id="channelId">
             <label>Name</label>
@@ -351,22 +310,22 @@
             <select id="channelMode"><option value="immediate">Immediate</option><option value="periodic">Periodic</option></select>
             <label>Interval (for periodic, e.g. 30m, 1h)</label>
             <input type="text" id="channelInterval" placeholder="30m">
-            <div class="toggle"><input type="checkbox" id="channelEnabled" checked><label for="channelEnabled">Enabled</label></div>
+            <div class="dc-toggle"><input type="checkbox" class="toggle toggle-primary toggle-sm" id="channelEnabled" checked><label for="channelEnabled">Enabled</label></div>
             <div class="btn-row">
-                <button class="btn-cancel" onclick="closeModal('channelModal')">Cancel</button>
-                <button class="btn-save" onclick="saveChannel()">Save</button>
+                <button class="btn btn-sm btn-ghost border border-white/10 btn-cancel" onclick="closeModal('channelModal')">Cancel</button>
+                <button class="btn btn-sm btn-primary btn-save" onclick="saveChannel()">Save</button>
             </div>
         </div>
     </div>
 
     <!-- Event detail Modal -->
     <div class="modal-overlay" id="eventModal">
-        <div class="modal" style="max-width:720px">
+        <div class="dc-modal max-w-[720px]">
             <h3 id="eventModalTitle">Event</h3>
-            <div id="eventModalBody" style="font-size:0.82rem;color:#cbd5e1"></div>
+            <div id="eventModalBody" class="text-[0.82rem] text-base-content/80"></div>
             <div class="btn-row">
-                <button class="btn-cancel" onclick="closeModal('eventModal')">Close</button>
-                <button class="danger" id="eventDeleteBtn" style="background:rgba(248,113,113,0.08);color:#f87171;border:1px solid rgba(248,113,113,0.2);padding:0.55rem 1.1rem;border-radius:8px;cursor:pointer;font-size:0.85rem;font-weight:600">Delete</button>
+                <button class="btn btn-sm btn-ghost border border-white/10 btn-cancel" onclick="closeModal('eventModal')">Close</button>
+                <button class="btn btn-sm btn-outline btn-error danger" id="eventDeleteBtn">Delete</button>
             </div>
         </div>
     </div>
@@ -433,9 +392,9 @@
 
         function renderModels() {
             document.getElementById('modelsTable').innerHTML = models.map(function(m) {
-                var acc = (m.accepts||['text']).map(function(a){return '<span class="badge badge-tag">'+esc(a)+'</span>';}).join('');
+                var acc = (m.accepts||['text']).map(function(a){return '<span class="badge badge-sm badge-tag">'+esc(a)+'</span>';}).join('');
                 return '<tr><td><strong>'+esc(m.name)+'</strong></td><td>'+esc(m.provider)+'</td><td><code>'+esc(m.model_id)+'</code></td>'
-                    +'<td><span class="badge '+(m.think?'badge-on':'badge-off')+'">'+(m.think?'on':'off')+'</span></td>'
+                    +'<td><span class="badge badge-sm '+(m.think?'badge-on':'badge-off')+'">'+(m.think?'on':'off')+'</span></td>'
                     +'<td>'+acc+'</td><td class="actions"><button onclick="editModel('+m.id+')">Edit</button>'
                     +'<button class="danger" onclick="deleteModel('+m.id+')">Delete</button></td></tr>';
             }).join('');
@@ -443,7 +402,7 @@
 
         function renderAgents() {
             document.getElementById('agentsTable').innerHTML = agents.map(function(a) {
-                return '<tr><td><strong>'+esc(a.name)+'</strong></td><td>'+(esc(a.model_name)||'<span style="color:#475569">none</span>')+'</td>'
+                return '<tr><td><strong>'+esc(a.name)+'</strong></td><td>'+(esc(a.model_name)||'<span style="opacity:0.4">none</span>')+'</td>'
                     +'<td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(a.system_prompt)+'</td>'
                     +'<td class="actions"><button onclick="editAgent('+a.id+')">Edit</button>'
                     +'<button class="danger" onclick="deleteAgent('+a.id+')">Delete</button></td></tr>';
@@ -455,7 +414,7 @@
             document.getElementById('channelsTable').innerHTML = channels.map(function(c) {
                 return '<tr><td><strong>'+esc(c.name)+'</strong></td><td>'+esc(c.type)+'</td><td>'+esc(c.agent_name)+'</td>'
                     +'<td>'+esc(c.response_mode)+(c.response_interval?' / '+esc(c.response_interval):'')+'</td>'
-                    +'<td><span class="badge '+(c.enabled?'badge-on':'badge-off')+'">'+(c.enabled?'on':'off')+'</span></td>'
+                    +'<td><span class="badge badge-sm '+(c.enabled?'badge-on':'badge-off')+'">'+(c.enabled?'on':'off')+'</span></td>'
                     +'<td class="actions"><button onclick="editChannel('+c.id+')">Edit</button>'
                     +'<button class="danger" onclick="deleteChannel('+c.id+')">Delete</button></td></tr>';
             }).join('');
@@ -553,8 +512,8 @@
         function renderSkills() {
             document.getElementById('skillsTable').innerHTML = skills.map(function(s) {
                 var ids = s.agent_ids || [];
-                var access = ids.length === 0 ? '<span class="badge badge-on">public</span>'
-                    : ids.map(function(id) { var a = find(agents, id); return '<span class="badge badge-tag">' + esc(a ? a.name : '?') + '</span>'; }).join(' ');
+                var access = ids.length === 0 ? '<span class="badge badge-sm badge-on">public</span>'
+                    : ids.map(function(id) { var a = find(agents, id); return '<span class="badge badge-sm badge-tag">' + esc(a ? a.name : '?') + '</span>'; }).join(' ');
                 return '<tr><td><strong>' + esc(s.name) + '</strong></td>'
                     + '<td>' + esc(s.description) + '</td>'
                     + '<td>' + access + '</td>'
@@ -573,7 +532,7 @@
             var assigned = s ? (s.agent_ids || []) : [];
             document.getElementById('skillAgentsCheckboxes').innerHTML = agents.map(function(a) {
                 var checked = assigned.includes(a.id) ? 'checked' : '';
-                return '<label style="display:block;font-size:0.8rem;margin-bottom:0.2rem;color:#cbd5e1"><input type="checkbox" value="' + a.id + '" ' + checked + ' style="margin-right:0.4rem;accent-color:#dc2626"> ' + esc(a.name) + '</label>';
+                return '<label style="display:block;font-size:0.8rem;margin-bottom:0.2rem"><input type="checkbox" value="' + a.id + '" ' + checked + ' style="margin-right:0.4rem;accent-color:#dc2626"> ' + esc(a.name) + '</label>';
             }).join('');
             document.getElementById('skillModal').classList.add('open');
         }
@@ -608,10 +567,10 @@
             document.getElementById('agentModel').value = a&&a.model_id?a.model_id:'';
             var assignedSkills = a ? (a.skill_ids || []) : [];
             document.getElementById('agentSkillsCheckboxes').innerHTML = skills.length === 0
-                ? '<span style="color:#64748b;font-size:0.8rem">No skills yet. Create skills first.</span>'
+                ? '<span style="opacity:0.5;font-size:0.8rem">No skills yet. Create skills first.</span>'
                 : skills.map(function(s) {
                     var checked = assignedSkills.includes(s.id) ? 'checked' : '';
-                    return '<label style="display:block;font-size:0.8rem;margin-bottom:0.2rem;color:#cbd5e1"><input type="checkbox" value="' + s.id + '" ' + checked + ' style="margin-right:0.4rem;accent-color:#dc2626"> ' + esc(s.name) + ' <span style="color:#64748b">- ' + esc(s.description) + '</span></label>';
+                    return '<label style="display:block;font-size:0.8rem;margin-bottom:0.2rem"><input type="checkbox" value="' + s.id + '" ' + checked + ' style="margin-right:0.4rem;accent-color:#dc2626"> ' + esc(s.name) + ' <span style="opacity:0.5">- ' + esc(s.description) + '</span></label>';
                 }).join('');
             document.getElementById('agentModal').classList.add('open');
         }
@@ -681,18 +640,18 @@
                 else if (j.session_id) target = 'Web: <code>' + esc(String(j.session_id).slice(0,16)) + (j.session_id.length>16?'…':'') + '</code>';
                 else target = '?';
                 var last = j.last_run_at
-                    ? '<span class="badge ' + (j.last_status==='ok'?'badge-on':'badge-off') + '">' + esc(j.last_status||'?') + '</span> <span style="color:#64748b;font-size:0.7rem">' + esc(new Date(j.last_run_at).toISOString().replace('T',' ').slice(0,16)) + '</span>'
-                    : '<span style="color:#64748b">never</span>';
-                var tz = (j.timezone && j.timezone!=='UTC') ? ' <span style="color:#64748b;font-size:0.7rem">' + esc(j.timezone) + '</span>' : '';
+                    ? '<span class="badge badge-sm ' + (j.last_status==='ok'?'badge-on':'badge-off') + '">' + esc(j.last_status||'?') + '</span> <span style="opacity:0.5;font-size:0.7rem">' + esc(new Date(j.last_run_at).toISOString().replace('T',' ').slice(0,16)) + '</span>'
+                    : '<span style="opacity:0.4">never</span>';
+                var tz = (j.timezone && j.timezone!=='UTC') ? ' <span style="opacity:0.5;font-size:0.7rem">' + esc(j.timezone) + '</span>' : '';
                 var promptCell = '<div style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(j.prompt||'') + '</div>'
-                    + (j.description ? '<div class="cron-desc" style="font-size:0.7rem;color:#64748b;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(j.description) + '</div>' : '');
+                    + (j.description ? '<div class="cron-desc" style="font-size:0.7rem;opacity:0.5;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(j.description) + '</div>' : '');
                 return '<tr><td>' + j.id + '</td>'
                     + '<td>' + esc(j.agent_name||'?') + '</td>'
                     + '<td>' + target + '</td>'
                     + '<td>' + sched + tz + '</td>'
                     + '<td>' + promptCell + '</td>'
                     + '<td>' + last + '</td>'
-                    + '<td><span class="badge ' + (j.enabled?'badge-on':'badge-off') + '">' + (j.enabled?'on':'off') + '</span></td>'
+                    + '<td><span class="badge badge-sm ' + (j.enabled?'badge-on':'badge-off') + '">' + (j.enabled?'on':'off') + '</span></td>'
                     + '<td class="actions"><button onclick="editCron(' + j.id + ')">Edit</button>'
                     + '<button class="danger" onclick="deleteCron(' + j.id + ')">Delete</button></td></tr>';
             }).join('');
@@ -730,11 +689,11 @@
         function renderEvents() {
             var rows = events.map(function(ev) {
                 var when = new Date(ev.created_at).toLocaleString();
-                var statusBadge = '<span class="badge ' + (ev.status === 'success' ? 'badge-on' : 'badge-off') + '">' + esc(ev.status) + '</span>';
+                var statusBadge = '<span class="badge badge-sm ' + (ev.status === 'success' ? 'badge-on' : 'badge-off') + '">' + esc(ev.status) + '</span>';
                 var dur = ev.duration_ms != null ? (ev.duration_ms + ' ms') : '—';
                 return '<tr style="cursor:pointer" onclick="openEventDetail(' + ev.id + ')">'
                     + '<td style="white-space:nowrap">' + esc(when) + '</td>'
-                    + '<td><span class="badge badge-tag">' + esc(ev.kind) + '</span></td>'
+                    + '<td><span class="badge badge-sm badge-tag">' + esc(ev.kind) + '</span></td>'
                     + '<td>' + statusBadge + '</td>'
                     + '<td><code>' + esc(ev.ref_id || '') + '</code></td>'
                     + '<td>' + esc(dur) + '</td>'
@@ -742,7 +701,7 @@
                     + '<td class="actions"><button class="danger" onclick="event.stopPropagation();deleteEvent(' + ev.id + ')">Delete</button></td>'
                     + '</tr>';
             }).join('');
-            document.getElementById('eventsTable').innerHTML = rows || '<tr><td colspan="7" style="color:#475569;text-align:center;padding:1.5rem">No events yet.</td></tr>';
+            document.getElementById('eventsTable').innerHTML = rows || '<tr><td colspan="7" style="opacity:0.4;text-align:center;padding:1.5rem">No events yet.</td></tr>';
         }
 
         function openEventDetail(id) {
