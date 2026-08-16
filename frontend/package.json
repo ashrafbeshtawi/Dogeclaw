@@ -1,0 +1,15 @@
+{
+  "name": "dogeclaw-frontend",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Dev-only CSS toolchain. Output (agent/src/web/public/app.css) is committed; the Docker image needs no build step.",
+  "scripts": {
+    "build": "tailwindcss -i app.css -o ../agent/src/web/public/app.css --minify",
+    "watch": "tailwindcss -i app.css -o ../agent/src/web/public/app.css --watch"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.1.0",
+    "daisyui": "^5.0.0",
+    "tailwindcss": "^4.1.0"
+  }
+}

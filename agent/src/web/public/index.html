@@ -1,120 +1,45 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dogeclaw">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DogeClaw</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0a0a0f; color: #e2e8f0; height: 100vh; display: flex; }
-
-        /* Sidebar */
-        .sidebar { width: 280px; background: #0e0e16; border-right: 1px solid rgba(220,38,38,0.1); display: flex; flex-direction: column; }
-        .sidebar-header { padding: 1.5rem 1.25rem 1rem; border-bottom: 1px solid rgba(255,255,255,0.05); display: flex; flex-direction: column; align-items: center; gap: 0.5rem; text-align: center; }
-        .sidebar-header img { width: 110px; height: auto; filter: drop-shadow(0 4px 16px rgba(220,38,38,0.35)); transition: transform 0.2s; }
-        .sidebar-header img:hover { transform: scale(1.05); }
-        .sidebar-header h2 { font-size: 1.1rem; font-weight: 800; letter-spacing: -0.02em; background: linear-gradient(135deg, #fff 0%, #fca5a5 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
-        .sidebar-controls { padding: 0.75rem; display: flex; flex-direction: column; gap: 0.5rem; border-bottom: 1px solid rgba(255,255,255,0.05); }
-        .sidebar-controls select { width: 100%; padding: 0.4rem 0.6rem; border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; background: rgba(255,255,255,0.03); color: #e2e8f0; font-size: 0.8rem; }
-        .new-chat-btn { width: 100%; padding: 0.5rem; border: 1px dashed rgba(220,38,38,0.3); border-radius: 8px; background: transparent; color: #dc2626; font-size: 0.8rem; font-weight: 600; cursor: pointer; transition: all 0.2s; }
-        .new-chat-btn:hover { background: rgba(220,38,38,0.08); border-style: solid; }
-        .sessions { flex: 1; overflow-y: auto; padding: 0.5rem; display: flex; flex-direction: column; gap: 0.25rem; }
-        .session-item { padding: 0.6rem 0.75rem; border-radius: 8px; cursor: pointer; font-size: 0.8rem; color: #94a3b8; display: flex; justify-content: space-between; align-items: center; transition: all 0.15s; border: 1px solid transparent; }
-        .session-item:hover { background: rgba(255,255,255,0.03); border-color: rgba(255,255,255,0.05); }
-        .session-item.active { background: rgba(220,38,38,0.08); border-color: rgba(220,38,38,0.15); color: #fca5a5; }
-        .session-item .label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
-        .session-item .src { font-size: 0.65rem; background: rgba(255,255,255,0.06); padding: 0.1rem 0.35rem; border-radius: 4px; margin-right: 0.4rem; flex-shrink: 0; }
-        .session-item .del { opacity: 0; font-size: 0.7rem; cursor: pointer; color: #f87171; flex-shrink: 0; }
-        .session-item:hover .del { opacity: 1; }
-        .sidebar-footer { padding: 0.75rem; border-top: 1px solid rgba(255,255,255,0.05); display: flex; gap: 0.5rem; }
-        .sidebar-footer button { flex: 1; padding: 0.45rem; background: transparent; border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; color: #64748b; cursor: pointer; font-size: 0.75rem; transition: all 0.15s; }
-        .sidebar-footer button:hover { color: #e2e8f0; border-color: rgba(255,255,255,0.15); }
-
-        /* Main chat */
-        .main { flex: 1; display: flex; flex-direction: column; background-image: radial-gradient(ellipse at 80% 20%, rgba(220,38,38,0.03) 0%, transparent 50%); }
-        .messages { flex: 1; overflow-y: auto; padding: 1.5rem 2rem; display: flex; flex-direction: column; gap: 1rem; }
-        .msg { max-width: 75%; padding: 0.9rem 1.1rem; border-radius: 14px; font-size: 0.9rem; line-height: 1.6; white-space: pre-wrap; word-wrap: break-word; }
-        .msg.user { align-self: flex-end; background: linear-gradient(135deg, #1e293b 0%, #1a2332 100%); border: 1px solid rgba(255,255,255,0.06); }
-        .msg.assistant { align-self: flex-start; background: #12121c; border: 1px solid rgba(255,255,255,0.05); }
-        .msg .image-preview { max-width: 200px; max-height: 150px; border-radius: 8px; margin-bottom: 0.5rem; display: block; }
-        .media-chip { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.7rem; padding: 0.2rem 0.55rem; border-radius: 999px; background: rgba(96,165,250,0.1); color: #93c5fd; margin-bottom: 0.45rem; border: 1px solid rgba(96,165,250,0.15); }
-
-        /* Thinking block */
-        .thinking-block { font-size: 0.8rem; color: #64748b; background: rgba(220,38,38,0.03); border: 1px solid rgba(220,38,38,0.08); border-radius: 8px; margin-bottom: 0.5rem; overflow: hidden; }
-        .thinking-toggle { padding: 0.4rem 0.6rem; cursor: pointer; display: flex; align-items: center; gap: 0.3rem; transition: background 0.15s; }
-        .thinking-toggle:hover { background: rgba(220,38,38,0.05); }
-        .thinking-content { padding: 0.5rem 0.6rem; white-space: pre-wrap; max-height: 200px; overflow-y: auto; display: none; border-top: 1px solid rgba(220,38,38,0.08); font-size: 0.75rem; }
-        .thinking-content.open { display: block; }
-
-        /* Spinner */
-        .spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid rgba(220,38,38,0.2); border-top-color: #dc2626; border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: middle; margin-right: 0.5rem; }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .status-text { color: #94a3b8; font-size: 0.85rem; }
-        .streaming .status-row { display: flex; align-items: center; margin-bottom: 0.5rem; }
-        .status-row { display: none; }
-
-        /* Input area */
-        .file-preview { padding: 0.5rem 2rem; display: none; align-items: center; gap: 0.5rem; font-size: 0.8rem; color: #94a3b8; }
-        .file-preview img { max-height: 60px; border-radius: 6px; }
-        .file-preview .remove { cursor: pointer; color: #f87171; margin-left: auto; }
-        .input-area { padding: 1rem 2rem 1.25rem; border-top: 1px solid rgba(255,255,255,0.05); display: flex; gap: 0.5rem; align-items: flex-end; }
-        .input-area textarea { flex: 1; padding: 0.75rem 1rem; border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; background: rgba(255,255,255,0.03); color: #e2e8f0; font-size: 0.9rem; resize: none; outline: none; font-family: inherit; min-height: 46px; max-height: 120px; transition: border-color 0.2s; }
-        .input-area textarea:focus { border-color: rgba(220,38,38,0.4); }
-        .input-area button { padding: 0.75rem; border: none; border-radius: 12px; cursor: pointer; font-size: 0.9rem; min-width: 46px; transition: all 0.15s; }
-        .send-btn { background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%); color: #fff; font-weight: 700; padding: 0.75rem 1.2rem !important; }
-        .send-btn:hover { box-shadow: 0 4px 15px rgba(220,38,38,0.3); }
-        .send-btn:disabled { opacity: 0.3; cursor: not-allowed; box-shadow: none; }
-        .media-btn { background: rgba(255,255,255,0.04); color: #64748b; border: 1px solid rgba(255,255,255,0.08); }
-        .media-btn:hover { background: rgba(255,255,255,0.08); color: #e2e8f0; }
-        .media-btn.recording { background: rgba(220,38,38,0.15); color: #dc2626; border-color: rgba(220,38,38,0.3); animation: pulse 1s infinite; }
-        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
-
-        /* Empty state */
-        .empty-state { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; opacity: 0.6; }
-        .empty-state img { width: 360px; max-width: 60vw; margin-bottom: 1.5rem; filter: drop-shadow(0 8px 24px rgba(220,38,38,0.25)); animation: breathe 4s ease-in-out infinite; }
-        .empty-state p { font-size: 0.95rem; color: #64748b; }
-        @keyframes breathe {
-            0%, 100% { transform: scale(1); }
-            50% { transform: scale(1.03); }
-        }
-
-        @media (max-width: 700px) { .sidebar { display: none; } }
-    </style>
+    <link rel="stylesheet" href="/static/app.css">
 </head>
-<body>
-    <div class="sidebar">
-        <div class="sidebar-header">
-            <img src="/static/logo.png" alt="DogeClaw">
-            <h2>DogeClaw</h2>
+<body class="h-screen flex bg-base-200 text-base-content overflow-hidden">
+    <div class="w-72 bg-base-100 border-r border-primary/10 hidden md:flex flex-col shrink-0">
+        <div class="px-5 pt-6 pb-4 border-b border-white/5 flex flex-col items-center gap-2 text-center">
+            <img src="/static/logo.png" alt="DogeClaw" class="w-28 drop-shadow-[0_4px_16px_rgba(220,38,38,0.35)] transition-transform hover:scale-105">
+            <h2 class="text-lg font-extrabold tracking-tight bg-gradient-to-br from-white to-accent bg-clip-text text-transparent">DogeClaw</h2>
         </div>
-        <div class="sidebar-controls">
-            <select id="agentSelect" onchange="onAgentChange()"></select>
+        <div class="p-3 flex flex-col gap-2 border-b border-white/5">
+            <select id="agentSelect" onchange="onAgentChange()" class="select select-sm w-full"></select>
             <button class="new-chat-btn" onclick="newSession()">+ New Chat</button>
         </div>
-        <div class="sessions" id="sessions"></div>
-        <div class="sidebar-footer">
-            <button onclick="window.location='/admin'">Admin</button>
-            <button onclick="logout()">Logout</button>
+        <div class="flex-1 overflow-y-auto p-2 flex flex-col gap-1" id="sessions"></div>
+        <div class="p-3 border-t border-white/5 flex gap-2">
+            <button onclick="window.location='/admin'" class="btn btn-ghost btn-xs flex-1 font-normal border border-white/10 text-base-content/60">Admin</button>
+            <button onclick="logout()" class="btn btn-ghost btn-xs flex-1 font-normal border border-white/10 text-base-content/60">Logout</button>
         </div>
     </div>
-    <div class="main">
-        <div class="messages" id="messages">
+    <div class="flex-1 flex flex-col min-w-0">
+        <div class="flex-1 overflow-y-auto px-8 py-6 flex flex-col gap-4" id="messages">
             <div class="empty-state" id="emptyState">
                 <img src="/static/logo.png" alt="">
                 <p>Start a conversation</p>
             </div>
         </div>
-        <div class="file-preview" id="filePreview">
-            <img id="previewImg" src="" alt="">
+        <div class="px-8 py-2 items-center gap-2 text-sm text-base-content/70" id="filePreview" style="display:none">
+            <img id="previewImg" src="" alt="" class="max-h-16 rounded-md">
             <span id="previewName"></span>
-            <span class="remove" onclick="clearFile()">&times;</span>
+            <span class="remove cursor-pointer text-error ml-auto" onclick="clearFile()">&times;</span>
         </div>
-        <div class="input-area">
-            <button class="media-btn" onclick="document.getElementById('fileInput').click()" title="Attach file">&#128206;</button>
+        <div class="px-8 pb-5 pt-4 border-t border-white/5 flex gap-2 items-end">
+            <button class="media-btn btn btn-square btn-ghost border border-white/10 text-lg" onclick="document.getElementById('fileInput').click()" title="Attach file">&#128206;</button>
             <input type="file" id="fileInput" accept="image/*,audio/*" style="display:none" onchange="onFileSelect(event)">
-            <button class="media-btn" id="micBtn" onclick="toggleRecording()" title="Record voice">&#127908;</button>
-            <textarea id="input" placeholder="Message DogeClaw..." rows="1" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send()}"></textarea>
-            <button class="send-btn" id="sendBtn" onclick="send()">Send</button>
+            <button class="media-btn btn btn-square btn-ghost border border-white/10 text-lg" id="micBtn" onclick="toggleRecording()" title="Record voice">&#127908;</button>
+            <textarea id="input" placeholder="Message DogeClaw..." rows="1" class="textarea flex-1 min-h-[46px] max-h-[120px] resize-none text-[0.9rem]" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send()}"></textarea>
+            <button class="btn btn-primary" id="sendBtn" onclick="send()">Send</button>
         </div>
     </div>
     <script>
@@ -172,7 +97,7 @@
             el.innerHTML = data.sessions.map(function(s) {
                 var src = s.source === 'telegram' ? '<span class="src">TG</span>' : '';
                 return '<div class="session-item ' + (s.id === sessionId ? 'active' : '') + '" onclick="switchSession(\'' + s.id + '\')">'
-                    + src + '<span class="label">' + (s.preview || s.id.slice(0,8) + '...') + '</span>'
+                    + src + '<span class="session-label">' + (s.preview || s.id.slice(0,8) + '...') + '</span>'
                     + '<span class="del" onclick="event.stopPropagation();deleteSession(\'' + s.id + '\')">&times;</span></div>';
             }).join('');
         }
