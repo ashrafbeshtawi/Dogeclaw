@@ -5,7 +5,7 @@ import { composeUserText } from './lib/composeUserText.js';
 import { timestampNote } from './lib/timestamp.js';
 import { getTimezone } from './db/settings.js';
 
-const MAX_ITERATIONS = 10;
+const MAX_ITERATIONS = 30;
 
 const DEFAULT_SYSTEM_PROMPT = `You are DogeClaw, a personal AI agent running inside a Docker container.
 Be concise and practical.`;
