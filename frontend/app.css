@@ -138,22 +138,6 @@
   .btn-row { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1.5rem; }
 
   /* ---------- shared: badges & hints (emitted by admin JS) ---------- */
-  .badge-on {
-    background: color-mix(in oklab, var(--color-success) 15%, transparent);
-    color: var(--color-success);
-    border-color: transparent;
-  }
-  .badge-off {
-    background: color-mix(in oklab, var(--color-error) 15%, transparent);
-    color: var(--color-error);
-    border-color: transparent;
-  }
-  .badge-tag {
-    background: color-mix(in oklab, var(--color-info) 12%, transparent);
-    color: var(--color-info);
-    border-color: transparent;
-    margin-right: 0.2rem;
-  }
   .hint {
     font-size: 0.75rem;
     color: color-mix(in oklab, var(--color-base-content) 45%, transparent);
@@ -168,9 +152,11 @@
     font-size: 0.7rem;
   }
 
-  /* ---------- admin: table action buttons (emitted by JS) ---------- */
-  td .actions { display: flex; gap: 0.4rem; }
-  td .actions button {
+  /* ---------- admin: table action buttons (emitted by JS) ----------
+     The JS emits <td class="actions">, so the selector must be td.actions
+     (compound), not `td .actions` (descendant). */
+  td.actions { display: flex; gap: 0.4rem; align-items: center; }
+  td.actions button {
     background: transparent;
     border: 1px solid rgb(255 255 255 / 0.08);
     border-radius: 6px;
@@ -178,9 +164,10 @@
     padding: 0.25rem 0.6rem;
     font-size: 0.75rem;
     cursor: pointer;
+    white-space: nowrap;
     transition: all 0.15s;
   }
-  td .actions button:hover {
+  td.actions button:hover {
     border-color: rgb(255 255 255 / 0.2);
     color: var(--color-base-content);
   }
@@ -343,4 +330,24 @@
   @keyframes dc-card-entry { from { opacity: 0; transform: translateY(30px) scale(0.95); } to { opacity: 1; transform: translateY(0) scale(1); } }
   @keyframes dc-shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
   @keyframes dc-blink { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
+}
+
+/* Badge color variants (emitted by admin JS). Unlayered on purpose:
+ * daisyUI's .badge rule lives in its own cascade layer that outranks
+ * @layer components, so these must stay outside any layer to win. */
+.badge.badge-on {
+  background-color: color-mix(in oklab, var(--color-success) 15%, transparent);
+  color: var(--color-success);
+  border-color: transparent;
+}
+.badge.badge-off {
+  background-color: color-mix(in oklab, var(--color-error) 15%, transparent);
+  color: var(--color-error);
+  border-color: transparent;
+}
+.badge.badge-tag {
+  background-color: color-mix(in oklab, var(--color-info) 12%, transparent);
+  color: var(--color-info);
+  border-color: transparent;
+  margin-right: 0.2rem;
 }
