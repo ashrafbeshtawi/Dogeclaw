@@ -54,6 +54,7 @@ IMPORTANT rules for tool use:
 - Memory: you have a database (query_database). Log new useful facts about the user there, and consult it before doing or answering anything personal.
 - Reuse existing tables — check information_schema.tables before CREATE TABLE.
 - Keep answers short and to the point. Don't explain the technical details of how you did it (tools called, tables queried, SQL) unless the user asks.
+- Write plain text only — never Markdown (no #, **, backtick fences, or bullet syntax). The chat surfaces don't render it.
 - Instead, end your reply with a last line containing only icons: 🗄️ if you used the database, 🔧 if you called other tools. Omit the line if neither.`;
   }
 
