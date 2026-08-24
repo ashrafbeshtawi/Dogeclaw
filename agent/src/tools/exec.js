@@ -24,10 +24,18 @@ export function register(registry) {
         cwd: config.paths.files,
         maxBuffer: 1024 * 1024,
       }, (err, stdout, stderr) => {
+        // Tell the model when it's looking at partial output — silently
+        // sliced stdout is indistinguishable from a command that printed
+        // exactly this much. Same for timeouts vs ordinary failures:
+        // a timeout kill has killed=true and no exit code, while the
+        // maxBuffer kill carries an ERR_CHILD_* code.
         resolve({
           stdout: stdout.slice(0, 10000),
           stderr: stderr.slice(0, 5000),
           exitCode: err ? (err.code || 1) : 0,
+          ...(err?.killed && !err.code && { timedOut: true }),
+          ...(stdout.length > 10000 && { stdoutTruncated: true }),
+          ...(stderr.length > 5000 && { stderrTruncated: true }),
         });
       });
     });
