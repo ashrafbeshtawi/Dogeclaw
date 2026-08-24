@@ -1,4 +1,4 @@
-import { readFile, writeFile, readdir, unlink, mkdir, stat } from 'node:fs/promises';
+import { readFile, writeFile, appendFile, readdir, unlink, mkdir, stat } from 'node:fs/promises';
 import { join, resolve, relative } from 'node:path';
 import config from '../config.js';
 
@@ -14,11 +14,11 @@ export function register(registry) {
     type: 'function',
     function: {
       name: 'file_operation',
-      description: 'Read, write, list, or delete files in the agent workspace. Examples: list "." to see all files, write "notes.md" with content, read "config.json", delete "old.txt". Use this to persist data between conversations.',
+      description: 'Read, write, append, list, or delete files in the agent workspace. Examples: list "." to see all files, write "notes.md" with content, append a line to "log.md", read "config.json", delete "old.txt". Use this to persist data between conversations.',
       parameters: {
         type: 'object',
         properties: {
-          operation: { type: 'string', enum: ['read', 'write', 'list', 'delete'], description: 'The operation to perform' },
+          operation: { type: 'string', enum: ['read', 'write', 'append', 'list', 'delete'], description: 'The operation to perform' },
           path: { type: 'string', description: 'Relative path within the workspace' },
           content: { type: 'string', description: 'File content (for write operation)' },
         },
@@ -31,12 +31,22 @@ export function register(registry) {
     switch (operation) {
       case 'read': {
         const data = await readFile(target, 'utf-8');
-        return { content: data.slice(0, 50000) };
+        // Flag sliced reads — silently cut content is indistinguishable
+        // from a file that ends there.
+        return {
+          content: data.slice(0, 50000),
+          ...(data.length > 50000 && { truncated: true, totalChars: data.length }),
+        };
       }
       case 'write': {
         await mkdir(join(target, '..'), { recursive: true });
         await writeFile(target, content || '', 'utf-8');
         return { written: true, path };
+      }
+      case 'append': {
+        await mkdir(join(target, '..'), { recursive: true });
+        await appendFile(target, content || '', 'utf-8');
+        return { appended: true, path };
       }
       case 'list': {
         const info = await stat(target);
