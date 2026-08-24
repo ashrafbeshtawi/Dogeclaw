@@ -34,6 +34,21 @@ test('write creates nested directories', async () => {
   assert.deepEqual(await run({ operation: 'read', path: 'a/b/c.txt' }), { content: 'deep' });
 });
 
+test('append creates the file, then extends it', async () => {
+  assert.deepEqual(await run({ operation: 'append', path: 'log.md', content: 'one\n' }),
+    { appended: true, path: 'log.md' });
+  await run({ operation: 'append', path: 'log.md', content: 'two\n' });
+  assert.deepEqual(await run({ operation: 'read', path: 'log.md' }), { content: 'one\ntwo\n' });
+});
+
+test('read over 50k chars is sliced and flagged', async () => {
+  await run({ operation: 'write', path: 'big.txt', content: 'x'.repeat(60000) });
+  const res = await run({ operation: 'read', path: 'big.txt' });
+  assert.equal(res.content.length, 50000);
+  assert.equal(res.truncated, true);
+  assert.equal(res.totalChars, 60000);
+});
+
 test('list returns entries with type', async () => {
   const res = await run({ operation: 'list', path: '.' });
   assert.ok(res.entries.some(e => e.name === 'notes.md' && e.type === 'file'));
