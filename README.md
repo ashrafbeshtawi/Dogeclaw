@@ -121,7 +121,7 @@ volumes:
   postgres_data:
 ```
 
-On boot, the agent applies any pending SQL migrations (connecting with the credentials above) and creates a restricted `dogeclaw` Postgres role with a fixed password (`dogeclaw-agent-pw`). The agent connects with this restricted role for its `query_database` tool, while admin operations use the `POSTGRES_USER` you set above. Multi-replica deploys are safe — a Postgres advisory lock serializes the migration step across replicas.
+On boot, the agent applies any pending SQL migrations (connecting with the credentials above) and creates a restricted `dogeclaw` Postgres role with a fixed password (`dogeclaw-agent-pw`). The agent connects with this restricted role for its `database` tool, while admin operations use the `POSTGRES_USER` you set above. Multi-replica deploys are safe — a Postgres advisory lock serializes the migration step across replicas.
 
 > Upgrading from v1.x? The old `dogeclaw-migrations` Flyway service is no longer needed. Remove it from your compose file when you upgrade — v2 will detect Flyway's history table on first boot and import its rows so V1..V12 don't re-run.
 
@@ -193,8 +193,10 @@ Reusable knowledge / instructions stored in the DB, assignable per-agent (or mar
 - **`shell_exec`** — run shell commands inside the container's workspace
 - **File ops** — read, write, list, delete files
 - **`schedule_cron`** — let the agent set up its own scheduled tasks
-- **`query_database`** — read-only Postgres queries via the restricted role
+- **`database`** — structured Postgres access via the restricted role: list/describe the agent's tables, select/insert/update/delete rows, raw SQL as escape hatch
 - **`web_search` / `web_fetch` / `web_research`** — fetch and parse pages with cheerio
+- **`http_request`** — raw HTTP calls for JSON/REST APIs
+- **`search_history`** — search the current conversation's full stored history
 - **MCP bridge** — connect any Model Context Protocol stdio server and expose its tools to the agent
 - **`read_skill`** — load a skill's full content on demand
 
