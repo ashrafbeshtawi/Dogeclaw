@@ -1,22 +1,5 @@
 import * as cheerio from 'cheerio';
-
-const USER_AGENT = 'Mozilla/5.0 (compatible; DogeClaw/1.0)';
-
-async function fetchPage(url, timeout = 15000) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeout);
-  try {
-    const res = await fetch(url, {
-      headers: { 'User-Agent': USER_AGENT },
-      signal: controller.signal,
-      redirect: 'follow',
-    });
-    const html = await res.text();
-    return { html, status: res.status, url: res.url };
-  } finally {
-    clearTimeout(timer);
-  }
-}
+import { fetchPage } from '../lib/fetchPage.js';
 
 function extractText(html, selector) {
   const $ = cheerio.load(html);
