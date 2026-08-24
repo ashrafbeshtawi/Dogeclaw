@@ -211,7 +211,9 @@ export function createWebServer(agent) {
           },
         });
 
-        const finalContent = fullContent || result.content;
+        // Prefer run()'s content: it's the streamed text plus the mechanical
+        // 🗄️/🔧 line, with any model-written icon lines stripped.
+        const finalContent = result.content || fullContent;
 
         await appendMessage(sid, {
           role: 'assistant',
