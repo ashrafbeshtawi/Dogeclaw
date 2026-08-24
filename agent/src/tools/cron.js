@@ -1,6 +1,7 @@
-import { listJobs, createJob, deleteJob } from '../db/crons.js';
+import { listJobs, createJob, deleteJob, getJob } from '../db/crons.js';
 import { getTimezone } from '../db/settings.js';
 import { reloadCronJobs } from '../cron/runner.js';
+import { ownsJob } from '../lib/cronOwnership.js';
 
 export function register(registry) {
   registry.register('manage_cron', {
@@ -32,14 +33,18 @@ export function register(registry) {
   }, async (args, context = {}) => {
     const { action, id, expression, run_at, timezone, description, prompt } = args;
 
+    // list/remove are scoped to the calling conversation, same boundary as
+    // add: other chats' jobs (and their prompts) must not be visible or
+    // cancellable from here. Foreign ids read as "not found" on purpose.
     if (action === 'list') {
-      return { jobs: await listJobs() };
+      return { jobs: (await listJobs()).filter(j => ownsJob(j, context)) };
     }
 
     if (action === 'remove') {
       if (id == null) return { error: 'id is required' };
-      const ok = await deleteJob(id);
-      if (!ok) return { error: `Job ${id} not found` };
+      const job = await getJob(id);
+      if (!job || !ownsJob(job, context)) return { error: `Job ${id} not found` };
+      await deleteJob(id);
       reloadCronJobs();
       return { removed: id };
     }
