@@ -25,6 +25,7 @@ export function register(registry) {
       rowCount: result.rowCount,
       rows: result.rows?.slice(0, 100),
       command: result.command,
+      ...(result.rows?.length > 100 && { truncated: true }),
     };
   });
 }
