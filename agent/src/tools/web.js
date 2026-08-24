@@ -2,6 +2,11 @@ import * as cheerio from 'cheerio';
 
 const USER_AGENT = 'Mozilla/5.0 (compatible; DogeClaw/1.0)';
 
+// Cap page downloads: downstream slices keep at most a few KB of text, so
+// buffering a multi-hundred-MB file (or an endless stream) first is pure
+// memory risk. 2 MB is plenty for any article's HTML.
+const MAX_FETCH_BYTES = 2 * 1024 * 1024;
+
 async function fetchPage(url, timeout = 15000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeout);
@@ -11,7 +16,26 @@ async function fetchPage(url, timeout = 15000) {
       signal: controller.signal,
       redirect: 'follow',
     });
-    const html = await res.text();
+    // Text extraction on a PDF/image/zip yields garbage — refuse early.
+    const type = res.headers.get('content-type') || '';
+    if (type && !/^(text\/|application\/(json|xml|xhtml))/.test(type)) {
+      controller.abort();
+      throw new Error(`Unsupported content type: ${type}`);
+    }
+    let html = '';
+    if (res.body) {
+      const reader = res.body.getReader();
+      const chunks = [];
+      let size = 0;
+      while (size < MAX_FETCH_BYTES) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        size += value.length;
+      }
+      if (size >= MAX_FETCH_BYTES) reader.cancel().catch(() => {});
+      html = new TextDecoder().decode(Buffer.concat(chunks, Math.min(size, MAX_FETCH_BYTES)));
+    }
     return { html, status: res.status, url: res.url };
   } finally {
     clearTimeout(timer);
