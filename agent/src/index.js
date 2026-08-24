@@ -13,6 +13,7 @@ import { createWebServer, setTelegramManager } from './web/server.js';
 import { importLegacyData } from './migrate/importLegacy.js';
 
 import { register as registerExec } from './tools/exec.js';
+import { register as registerHttp } from './tools/http.js';
 import { register as registerFiles } from './tools/files.js';
 import { register as registerCron } from './tools/cron.js';
 import { register as registerDb } from './tools/db.js';
@@ -35,6 +36,7 @@ async function main() {
   // Tool registry
   const registry = new ToolRegistry();
   registerExec(registry);
+  registerHttp(registry);
   registerFiles(registry);
   registerCron(registry);
   if (config.database.agentUrl) registerDb(registry);
