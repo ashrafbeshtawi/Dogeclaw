@@ -1,6 +1,5 @@
 import { adminQuery } from './pool.js';
-
-const HISTORY_LIMIT = 40;
+import { historyWindowStart } from '../lib/historyWindow.js';
 
 function rowToMessage(r) {
   const out = { id: r.id, role: r.role, content: r.content };
@@ -22,17 +21,20 @@ export async function loadSession(id) {
   if (sRes.rowCount === 0) return { messages: [] };
   const s = sRes.rows[0];
 
+  // Block-aligned window instead of "last N": a per-turn sliding window
+  // shifts the prompt prefix every request and permanently kills provider
+  // prompt caching on long sessions. See lib/historyWindow.js.
+  const cRes = await adminQuery(
+    'SELECT COUNT(*)::int AS n FROM session_messages WHERE session_id = $1',
+    [id],
+  );
   const mRes = await adminQuery(
     `SELECT id, role, content, tool_calls, thinking, has_image, has_audio, has_video, meta
-       FROM (
-         SELECT id, role, content, tool_calls, thinking, has_image, has_audio, has_video, meta
-         FROM session_messages
-         WHERE session_id = $1
-         ORDER BY id DESC
-         LIMIT $2
-       ) recent
-       ORDER BY id ASC`,
-    [id, HISTORY_LIMIT],
+       FROM session_messages
+      WHERE session_id = $1
+      ORDER BY id ASC
+      OFFSET $2`,
+    [id, historyWindowStart(cRes.rows[0].n)],
   );
 
   return {
