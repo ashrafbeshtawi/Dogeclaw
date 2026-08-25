@@ -3,6 +3,7 @@ import config from './config.js';
 import { listSkillsForAgent } from './tools/skills.js';
 import { composeUserText } from './lib/composeUserText.js';
 import { timestampNote } from './lib/timestamp.js';
+import { toolIcons, appendToolIcons, toolTrace } from './lib/toolIcons.js';
 import { getTimezone } from './db/settings.js';
 
 const MAX_ITERATIONS = 30;
@@ -55,7 +56,7 @@ IMPORTANT rules for tool use:
 - Reuse existing tables — check the database tool's "tables" and "describe" operations before CREATE TABLE.
 - Keep answers short and to the point. Don't explain the technical details of how you did it (tools called, tables queried, SQL) unless the user asks.
 - Write plain text only — never Markdown (no #, **, backtick fences, or bullet syntax). The chat surfaces don't render it.
-- Instead, end your reply with a last line containing only icons: 🗄️ if you used the database, 🔧 if you called other tools. Omit the line if neither.`;
+- Never claim you did something (saved, scheduled, searched, sent) unless you called the tool for it in this turn. Tool icons (🗄️/🔧) are appended to your reply automatically — never write them yourself.`;
   }
 
   /**
@@ -100,7 +101,16 @@ IMPORTANT rules for tool use:
       ? `${systemPrompt}\n\nNote: ${opts.systemNote}`
       : systemPrompt;
 
-    const messages = [{ role: 'system', content: systemContent }, ...history];
+    // Replay history faithfully: past assistant turns that called tools get
+    // a compact trace appended. Without it the model sees only its own
+    // claims ("saved it!") with the tool call edited out of the transcript —
+    // and learns to claim without calling. Derived from persisted data, so
+    // history still re-serializes identically every turn (cache-stable).
+    const replayed = history.map(m => {
+      const trace = m.role === 'assistant' ? toolTrace(m.toolCalls || []) : '';
+      return trace ? { ...m, content: `${m.content}\n${trace}` } : m;
+    });
+    const messages = [{ role: 'system', content: systemContent }, ...replayed];
 
     if (opts.triggerNote) {
       messages.push({ role: 'system', content: `${opts.triggerNote}\n\n${stamp}` });
@@ -148,7 +158,16 @@ IMPORTANT rules for tool use:
           messages.push(response);
           continue;
         }
-        return { content: response.content || '(no response)', toolCalls: collectedToolCalls };
+        // The 🗄️/🔧 status line is appended mechanically from the calls
+        // actually made this turn (the model is told not to write it).
+        // Streamed clients accumulated the raw text, so ship the line as
+        // one final chunk to keep the live view in sync with what's stored.
+        const icons = toolIcons(collectedToolCalls);
+        if (icons && onEvent) onEvent('content', `\n\n${icons}`);
+        return {
+          content: appendToolIcons(response.content || '(no response)', collectedToolCalls),
+          toolCalls: collectedToolCalls,
+        };
       }
 
       messages.push(response);
@@ -172,6 +191,9 @@ IMPORTANT rules for tool use:
       }
     }
 
-    return { content: '(reached maximum tool call iterations)', toolCalls: collectedToolCalls };
+    return {
+      content: appendToolIcons('(reached maximum tool call iterations)', collectedToolCalls),
+      toolCalls: collectedToolCalls,
+    };
   }
 }
