@@ -8,8 +8,7 @@ import { CronRunner, setActiveCronRunner } from './cron/runner.js';
 import { EventLogCleanup } from './cron/logCleanup.js';
 import { TelegramManager } from './channels/telegram.js';
 import { McpManager } from './mcp/client.js';
-import { registerMcpTools } from './tools/mcp.js';
-import { createWebServer, setTelegramManager } from './web/server.js';
+import { createWebServer, setTelegramManager, setMcpManager } from './web/server.js';
 import { importLegacyData } from './migrate/importLegacy.js';
 
 import { register as registerExec } from './tools/exec.js';
@@ -45,9 +44,11 @@ async function main() {
   if (config.database.agentUrl) registerSkills(registry);
 
   // MCP clients
-  const mcp = new McpManager();
-  await mcp.start();
-  registerMcpTools(registry, mcp);
+  // Registers/unregisters its tools on the registry itself: servers live in
+  // the mcp_servers table and can be reloaded at runtime via the admin UI.
+  const mcp = new McpManager(registry);
+  setMcpManager(mcp);
+  if (config.database.agentUrl) await mcp.start();
 
   // Agent
   const agent = new Agent(registry);

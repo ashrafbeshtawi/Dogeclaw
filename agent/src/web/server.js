@@ -19,6 +19,12 @@ import {
   deleteJob as deleteCronJob,
 } from '../db/crons.js';
 import { reloadCronJobs } from '../cron/runner.js';
+import {
+  listServers as listMcpServers,
+  createServer as createMcpServer,
+  updateServer as updateMcpServer,
+  deleteServer as deleteMcpServer,
+} from '../db/mcpServers.js';
 import { BOT_COMMANDS } from '../channels/telegram.js';
 import { getAllSettings, setSetting } from '../db/settings.js';
 import {
@@ -51,6 +57,12 @@ let telegramManager = null;
 
 export function setTelegramManager(tm) {
   telegramManager = tm;
+}
+
+let mcpManager = null;
+
+export function setMcpManager(m) {
+  mcpManager = m;
 }
 
 export function createWebServer(agent) {
@@ -489,6 +501,82 @@ export function createWebServer(agent) {
     if (telegramManager) telegramManager.reload().catch(e => console.error('[telegram] reload failed:', e.message));
     // Channels cascade to cron_jobs via FK; refresh the runner so it drops them.
     reloadCronJobs();
+  });
+
+  // --- MCP servers CRUD ---
+  // Changes take effect immediately: every write reloads the MCP manager,
+  // which reconnects servers and re-registers their allowlisted tools.
+  const reloadMcp = () => {
+    if (mcpManager) mcpManager.reload().catch(e => console.error('[mcp] reload failed:', e.message));
+  };
+  const MCP_NAME_RE = /^[a-zA-Z0-9_-]+$/;
+
+  app.get('/api/mcp', authMiddleware, async (req, res) => {
+    res.json({ servers: await listMcpServers() });
+  });
+
+  app.post('/api/mcp', authMiddleware, async (req, res) => {
+    const { name, command, args, env, allowed_tools, enabled } = req.body;
+    if (!name || !command) return res.status(400).json({ error: 'name and command required' });
+    if (!MCP_NAME_RE.test(name)) {
+      return res.status(400).json({ error: 'name must match [a-zA-Z0-9_-]+ (it becomes the tool prefix)' });
+    }
+    try {
+      const server = await createMcpServer({
+        name, command,
+        args: args || [],
+        env: env || {},
+        allowedTools: allowed_tools === undefined ? [] : allowed_tools,
+        enabled: enabled ?? true,
+      });
+      res.json(server);
+      reloadMcp();
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.put('/api/mcp/:id', authMiddleware, async (req, res) => {
+    const { name, command, args, env, allowed_tools, enabled } = req.body;
+    if (!name || !command) return res.status(400).json({ error: 'name and command required' });
+    if (!MCP_NAME_RE.test(name)) {
+      return res.status(400).json({ error: 'name must match [a-zA-Z0-9_-]+ (it becomes the tool prefix)' });
+    }
+    try {
+      const server = await updateMcpServer(req.params.id, {
+        name, command,
+        args: args || [],
+        env: env || {},
+        allowedTools: allowed_tools === undefined ? [] : allowed_tools,
+        enabled: enabled ?? true,
+      });
+      if (!server) return res.status(404).json({ error: 'not found' });
+      res.json(server);
+      reloadMcp();
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.delete('/api/mcp/:id', authMiddleware, async (req, res) => {
+    const ok = await deleteMcpServer(req.params.id);
+    if (!ok) return res.status(404).json({ error: 'not found' });
+    res.json({ ok: true });
+    reloadMcp();
+  });
+
+  // Ephemeral connect + listTools for the admin UI's Discover button.
+  // Takes the definition from the body so unsaved forms can be tested too.
+  app.post('/api/mcp/discover', authMiddleware, async (req, res) => {
+    const { command, args, env } = req.body;
+    if (!command) return res.status(400).json({ error: 'command required' });
+    if (!mcpManager) return res.status(503).json({ error: 'MCP manager not ready' });
+    try {
+      const tools = await mcpManager.discover({ command, args: args || [], env: env || {} });
+      res.json({ tools });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
   });
 
   // --- Cron jobs CRUD ---

@@ -5,6 +5,10 @@ export class ToolRegistry {
     this.#tools.set(name, { definition, handler });
   }
 
+  unregister(name) {
+    this.#tools.delete(name);
+  }
+
   getDefinitions() {
     return [...this.#tools.values()].map(t => t.definition);
   }
