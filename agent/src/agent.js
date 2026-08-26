@@ -4,6 +4,7 @@ import { listSkillsForAgent } from './tools/skills.js';
 import { composeUserText } from './lib/composeUserText.js';
 import { timestampNote } from './lib/timestamp.js';
 import { toolIcons, appendToolIcons, toolTrace } from './lib/toolIcons.js';
+import { claimsAction, CLAIM_NUDGE } from './lib/claimGuard.js';
 import { getTimezone } from './db/settings.js';
 
 const MAX_ITERATIONS = 30;
@@ -52,8 +53,8 @@ IMPORTANT rules for tool use:
 - Act, don't ask. Never say "I cannot" — if a tool can do it, use it.
 - Chain tool calls autonomously until the task is done (e.g. web_search → web_fetch on several results → synthesize). Don't stop after one call and don't ask the user to pick between steps.
 - If a skill in the list above looks relevant, call read_skill with its ID first.
-- Memory: you have a database (the database tool). Log new useful facts about the user there, and consult it before doing or answering anything personal.
-- Reuse existing tables — check the database tool's "tables" and "describe" operations before CREATE TABLE.
+- Memory: you have a database (the db_ tools). Log new useful facts about the user there, and consult it before doing or answering anything personal.
+- Reuse existing tables — check db_tables and db_describe before CREATE TABLE.
 - Keep answers short and to the point. Don't explain the technical details of how you did it (tools called, tables queried, SQL) unless the user asks.
 - Write plain text only — never Markdown (no #, **, backtick fences, or bullet syntax). The chat surfaces don't render it.
 - Never claim you did something (saved, scheduled, searched, sent) unless you called the tool for it in this turn. Tool icons (🗄️/🔧) are appended to your reply automatically — never write them yourself.`;
@@ -135,6 +136,7 @@ IMPORTANT rules for tool use:
     const apiKey = mc.apiKey || null;
     const llmOpts = { baseUrl, model, think, provider, apiKey };
     const collectedToolCalls = [];
+    let claimRetried = false;
 
     for (let i = 0; i < MAX_ITERATIONS; i++) {
       let response;
@@ -156,6 +158,16 @@ IMPORTANT rules for tool use:
           && !response._geminiParts.some(p => p.text || p.functionCall);
         if (hasThoughtOnly) {
           messages.push(response);
+          continue;
+        }
+        // Claim guard: a final reply that claims a completed action with
+        // ZERO tool calls this turn gets one corrective retry — the model
+        // either performs the action for real or rephrases. Bounded to one
+        // retry so a stubborn model can't loop.
+        if (!claimRetried && collectedToolCalls.length === 0 && claimsAction(response.content)) {
+          claimRetried = true;
+          messages.push(response);
+          messages.push({ role: 'system', content: CLAIM_NUDGE });
           continue;
         }
         // The 🗄️/🔧 status line is appended mechanically from the calls
@@ -185,9 +197,14 @@ IMPORTANT rules for tool use:
           result,
         });
         if (onEvent) onEvent('tool_result', { name: call.function.name, result });
-        // Truncate tool results to avoid exceeding model context
+        // Truncate tool results to avoid exceeding model context — and say
+        // so explicitly: a silently cut list reads as "the rest doesn't
+        // exist" and the model states that as fact.
         const resultStr = JSON.stringify(result);
-        messages.push({ role: 'tool', content: resultStr.slice(0, 12000), _toolName: call.function.name });
+        const resultContent = resultStr.length > 12000
+          ? `${resultStr.slice(0, 12000)}\n…[tool result truncated: showing 12000 of ${resultStr.length} chars — the data continues beyond this point]`
+          : resultStr;
+        messages.push({ role: 'tool', content: resultContent, _toolName: call.function.name });
       }
     }
 

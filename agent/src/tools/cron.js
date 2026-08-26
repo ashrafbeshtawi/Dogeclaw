@@ -37,7 +37,24 @@ export function register(registry) {
     // add: other chats' jobs (and their prompts) must not be visible or
     // cancellable from here. Foreign ids read as "not found" on purpose.
     if (action === 'list') {
-      return { jobs: (await listJobs()).filter(j => ownsJob(j, context)) };
+      // Compact rows: full prompts pushed a 24-job list past the 12k
+      // tool-result cap, and the model read the cut-off tail as "these
+      // jobs don't exist". The prompt is preview-only here.
+      const jobs = (await listJobs()).filter(j => ownsJob(j, context));
+      return {
+        jobs: jobs.map(j => ({
+          id: j.id,
+          expression: j.expression,
+          run_at: j.run_at,
+          timezone: j.timezone,
+          description: j.description,
+          prompt: (j.prompt || '').length > 120 ? `${j.prompt.slice(0, 120)}…` : j.prompt,
+          enabled: j.enabled,
+          last_run_at: j.last_run_at,
+          last_status: j.last_status,
+          run_count: j.run_count,
+        })),
+      };
     }
 
     if (action === 'remove') {

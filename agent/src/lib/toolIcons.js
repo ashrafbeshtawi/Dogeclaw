@@ -19,9 +19,13 @@
 const ICON_LINE = /\n[\s🗄️🔧]+$/u;
 const TRACE_LINE = /\n\[used tools: [^\]]*\]\s*$/;
 
+// db_* covers the per-operation tools; the two literal names are the older
+// single-tool generations, kept so replayed data stays classifiable.
+const isDbTool = name => name === 'database' || name === 'query_database' || name.startsWith('db_');
+
 export function toolIcons(toolCalls = []) {
-  const db = toolCalls.some(t => t.name === 'database' || t.name === 'query_database');
-  const other = toolCalls.some(t => t.name !== 'database' && t.name !== 'query_database');
+  const db = toolCalls.some(t => isDbTool(t.name));
+  const other = toolCalls.some(t => !isDbTool(t.name));
   return `${db ? '🗄️' : ''}${other ? '🔧' : ''}`;
 }
 

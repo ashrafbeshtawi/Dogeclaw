@@ -11,8 +11,10 @@ test('toolIcons: database vs other tools vs both vs none', () => {
   assert.equal(toolIcons([]), '');
   assert.equal(toolIcons([{ name: 'database' }]), '🗄️');
   assert.equal(toolIcons([{ name: 'query_database' }]), '🗄️');
+  assert.equal(toolIcons([{ name: 'db_select' }]), '🗄️');
+  assert.equal(toolIcons([{ name: 'db_tables' }]), '🗄️');
   assert.equal(toolIcons([{ name: 'web_search' }]), '🔧');
-  assert.equal(toolIcons([{ name: 'database' }, { name: 'web_search' }]), '🗄️🔧');
+  assert.equal(toolIcons([{ name: 'db_insert' }, { name: 'web_search' }]), '🗄️🔧');
 });
 
 test('appendToolIcons: no tools → content unchanged, no line', () => {
