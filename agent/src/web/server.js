@@ -515,20 +515,41 @@ export function createWebServer(agent) {
     res.json({ servers: await listMcpServers() });
   });
 
-  app.post('/api/mcp', authMiddleware, async (req, res) => {
-    const { name, command, args, env, allowed_tools, enabled } = req.body;
-    if (!name || !command) return res.status(400).json({ error: 'name and command required' });
+  // Shared validate/normalize for POST and PUT. Returns {error} or the
+  // normalized field set for the db layer.
+  const mcpFieldsFromBody = (body) => {
+    const { name, transport, command, args, env, url, headers, allowed_tools, enabled } = body;
+    const tr = transport || 'stdio';
+    if (!name) return { error: 'name required' };
     if (!MCP_NAME_RE.test(name)) {
-      return res.status(400).json({ error: 'name must match [a-zA-Z0-9_-]+ (it becomes the tool prefix)' });
+      return { error: 'name must match [a-zA-Z0-9_-]+ (it becomes the tool prefix)' };
     }
-    try {
-      const server = await createMcpServer({
-        name, command,
+    if (!['stdio', 'http'].includes(tr)) return { error: 'transport must be stdio or http' };
+    if (tr === 'stdio' && !command) return { error: 'command required for stdio transport' };
+    if (tr === 'http') {
+      if (!url) return { error: 'url required for http transport' };
+      try { new URL(url); } catch { return { error: 'url is not a valid URL' }; }
+    }
+    return {
+      fields: {
+        name,
+        transport: tr,
+        command: command || null,
         args: args || [],
         env: env || {},
+        url: url || null,
+        headers: headers || {},
         allowedTools: allowed_tools === undefined ? [] : allowed_tools,
         enabled: enabled ?? true,
-      });
+      },
+    };
+  };
+
+  app.post('/api/mcp', authMiddleware, async (req, res) => {
+    const { error, fields } = mcpFieldsFromBody(req.body);
+    if (error) return res.status(400).json({ error });
+    try {
+      const server = await createMcpServer(fields);
       res.json(server);
       reloadMcp();
     } catch (err) {
@@ -537,19 +558,10 @@ export function createWebServer(agent) {
   });
 
   app.put('/api/mcp/:id', authMiddleware, async (req, res) => {
-    const { name, command, args, env, allowed_tools, enabled } = req.body;
-    if (!name || !command) return res.status(400).json({ error: 'name and command required' });
-    if (!MCP_NAME_RE.test(name)) {
-      return res.status(400).json({ error: 'name must match [a-zA-Z0-9_-]+ (it becomes the tool prefix)' });
-    }
+    const { error, fields } = mcpFieldsFromBody(req.body);
+    if (error) return res.status(400).json({ error });
     try {
-      const server = await updateMcpServer(req.params.id, {
-        name, command,
-        args: args || [],
-        env: env || {},
-        allowedTools: allowed_tools === undefined ? [] : allowed_tools,
-        enabled: enabled ?? true,
-      });
+      const server = await updateMcpServer(req.params.id, fields);
       if (!server) return res.status(404).json({ error: 'not found' });
       res.json(server);
       reloadMcp();
@@ -568,11 +580,17 @@ export function createWebServer(agent) {
   // Ephemeral connect + listTools for the admin UI's Discover button.
   // Takes the definition from the body so unsaved forms can be tested too.
   app.post('/api/mcp/discover', authMiddleware, async (req, res) => {
-    const { command, args, env } = req.body;
-    if (!command) return res.status(400).json({ error: 'command required' });
+    const { transport, command, args, env, url, headers } = req.body;
+    const tr = transport || 'stdio';
+    if (tr === 'stdio' && !command) return res.status(400).json({ error: 'command required' });
+    if (tr === 'http' && !url) return res.status(400).json({ error: 'url required' });
     if (!mcpManager) return res.status(503).json({ error: 'MCP manager not ready' });
     try {
-      const tools = await mcpManager.discover({ command, args: args || [], env: env || {} });
+      const tools = await mcpManager.discover({
+        transport: tr,
+        command, args: args || [], env: env || {},
+        url, headers: headers || {},
+      });
       res.json({ tools });
     } catch (err) {
       res.status(400).json({ error: err.message });

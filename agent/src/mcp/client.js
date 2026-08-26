@@ -1,5 +1,6 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { listEnabledServers } from '../db/mcpServers.js';
 import { filterAllowedTools } from '../lib/mcpAllowlist.js';
 import { registerMcpTools } from '../tools/mcp.js';
@@ -7,6 +8,20 @@ import { registerMcpTools } from '../tools/mcp.js';
 // A hung `npx` (or a server that connects but never answers listTools) must
 // not wedge boot or an admin HTTP request forever.
 const CONNECT_TIMEOUT_MS = 20000;
+
+// def: { transport: 'stdio'|'http', command/args/env | url/headers }
+function buildTransport(def) {
+  if (def.transport === 'http') {
+    return new StreamableHTTPClientTransport(new URL(def.url), {
+      requestInit: { headers: def.headers || {} },
+    });
+  }
+  return new StdioClientTransport({
+    command: def.command,
+    args: def.args || [],
+    env: { ...process.env, ...(def.env || {}) },
+  });
+}
 
 function withTimeout(promise, label) {
   let timer;
@@ -50,12 +65,7 @@ export class McpManager {
 
   async #connectServer(server) {
     try {
-      const transport = new StdioClientTransport({
-        command: server.command,
-        args: server.args || [],
-        env: { ...process.env, ...(server.env || {}) },
-      });
-
+      const transport = buildTransport(server);
       const client = new Client({ name: `dogeclaw-${server.name}`, version: '0.1.0' });
       await withTimeout(client.connect(transport), `connect to ${server.name}`);
 
@@ -73,12 +83,8 @@ export class McpManager {
   // Ephemeral connect for the admin UI's Discover button: list what a server
   // definition offers without touching the persistent connections. Throws on
   // failure — the API layer turns that into a 400 the UI can display.
-  async discover({ command, args = [], env = {} }) {
-    const transport = new StdioClientTransport({
-      command,
-      args,
-      env: { ...process.env, ...env },
-    });
+  async discover(def) {
+    const transport = buildTransport(def);
     const client = new Client({ name: 'dogeclaw-discover', version: '0.1.0' });
     try {
       await withTimeout(client.connect(transport), 'connect');

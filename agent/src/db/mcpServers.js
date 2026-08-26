@@ -10,11 +10,14 @@ export async function listEnabledServers() {
   return res.rows;
 }
 
-export async function createServer({ name, command, args = [], env = {}, allowedTools = [], enabled = true }) {
+export async function createServer({
+  name, transport = 'stdio', command = null, args = [], env = {},
+  url = null, headers = {}, allowedTools = [], enabled = true,
+}) {
   const res = await adminQuery(
-    `INSERT INTO mcp_servers (name, command, args, env, allowed_tools, enabled)
-     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-    [name, command, JSON.stringify(args), JSON.stringify(env),
+    `INSERT INTO mcp_servers (name, transport, command, args, env, url, headers, allowed_tools, enabled)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+    [name, transport, command, JSON.stringify(args), JSON.stringify(env), url, JSON.stringify(headers),
      allowedTools == null ? null : JSON.stringify(allowedTools), enabled],
   );
   return res.rows[0];
@@ -23,13 +26,16 @@ export async function createServer({ name, command, args = [], env = {}, allowed
 // Full-row update: the admin UI always loads the current row into the edit
 // form, so every column is written back. allowed_tools NULL ("all tools")
 // stays expressible — a COALESCE-style partial update couldn't set it.
-export async function updateServer(id, { name, command, args = [], env = {}, allowedTools = [], enabled = true }) {
+export async function updateServer(id, {
+  name, transport = 'stdio', command = null, args = [], env = {},
+  url = null, headers = {}, allowedTools = [], enabled = true,
+}) {
   const res = await adminQuery(
     `UPDATE mcp_servers SET
-       name = $1, command = $2, args = $3, env = $4,
-       allowed_tools = $5, enabled = $6, updated_at = NOW()
-     WHERE id = $7 RETURNING *`,
-    [name, command, JSON.stringify(args), JSON.stringify(env),
+       name = $1, transport = $2, command = $3, args = $4, env = $5,
+       url = $6, headers = $7, allowed_tools = $8, enabled = $9, updated_at = NOW()
+     WHERE id = $10 RETURNING *`,
+    [name, transport, command, JSON.stringify(args), JSON.stringify(env), url, JSON.stringify(headers),
      allowedTools == null ? null : JSON.stringify(allowedTools), enabled, id],
   );
   return res.rows[0] || null;

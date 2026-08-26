@@ -342,12 +342,25 @@
             <label>Name</label>
             <input type="text" id="mcpName" placeholder="google-calendar">
             <div class="field-hint">Letters, digits, <code>-</code>, <code>_</code> only — becomes the tool prefix <code>mcp_&lt;name&gt;_*</code>.</div>
-            <label>Command</label>
-            <input type="text" id="mcpCommand" placeholder="npx">
-            <label>Arguments (one per line)</label>
-            <textarea id="mcpArgs" placeholder="-y&#10;@some/mcp-server" class="min-h-20"></textarea>
-            <label>Environment (KEY=VALUE, one per line)</label>
-            <textarea id="mcpEnv" placeholder="API_KEY=..." class="min-h-20"></textarea>
+            <label>Transport</label>
+            <select id="mcpTransport" onchange="onMcpTransportChange()">
+                <option value="stdio">stdio (local process)</option>
+                <option value="http">http (remote server)</option>
+            </select>
+            <div id="mcpStdioFields">
+                <label>Command</label>
+                <input type="text" id="mcpCommand" placeholder="npx">
+                <label>Arguments (one per line)</label>
+                <textarea id="mcpArgs" placeholder="-y&#10;@some/mcp-server" class="min-h-20"></textarea>
+                <label>Environment (KEY=VALUE, one per line)</label>
+                <textarea id="mcpEnv" placeholder="API_KEY=..." class="min-h-20"></textarea>
+            </div>
+            <div id="mcpHttpFields" style="display:none">
+                <label>URL</label>
+                <input type="text" id="mcpUrl" placeholder="https://mcp.example.com/mcp">
+                <label>Headers (KEY=VALUE, one per line)</label>
+                <textarea id="mcpHeaders" placeholder="Authorization=Bearer ..." class="min-h-20"></textarea>
+            </div>
             <label>Tools</label>
             <button class="btn btn-sm btn-ghost border border-white/10" onclick="discoverMcp()" id="mcpDiscoverBtn">Discover tools</button>
             <div class="field-hint" id="mcpDiscoverStatus"></div>
@@ -467,9 +480,17 @@
         }
 
         // MCP server CRUD
+        function onMcpTransportChange() {
+            var http = document.getElementById('mcpTransport').value === 'http';
+            document.getElementById('mcpStdioFields').style.display = http ? 'none' : 'block';
+            document.getElementById('mcpHttpFields').style.display = http ? 'block' : 'none';
+        }
+
         function renderMcp() {
             document.getElementById('mcpTable').innerHTML = mcpServers.map(function(s) {
-                var cmd = s.command + (s.args && s.args.length ? ' ' + s.args.join(' ') : '');
+                var cmd = s.transport === 'http'
+                    ? s.url
+                    : s.command + (s.args && s.args.length ? ' ' + s.args.join(' ') : '');
                 var tools = s.allowed_tools == null
                     ? '<span class="badge badge-sm badge-tag">all</span>'
                     : '<span class="badge badge-sm badge-tag">' + s.allowed_tools.length + ' allowed</span>';
@@ -487,10 +508,14 @@
             document.getElementById('mcpModalTitle').textContent = s ? 'Edit MCP Server' : 'New MCP Server';
             document.getElementById('mcpId').value = s ? s.id : '';
             document.getElementById('mcpName').value = s ? s.name : '';
-            document.getElementById('mcpCommand').value = s ? s.command : '';
+            document.getElementById('mcpTransport').value = s ? (s.transport || 'stdio') : 'stdio';
+            document.getElementById('mcpCommand').value = s ? (s.command || '') : '';
             document.getElementById('mcpArgs').value = s ? (s.args || []).join('\n') : '';
             document.getElementById('mcpEnv').value = s ? Object.entries(s.env || {}).map(function(e){ return e[0]+'='+e[1]; }).join('\n') : '';
+            document.getElementById('mcpUrl').value = s ? (s.url || '') : '';
+            document.getElementById('mcpHeaders').value = s ? Object.entries(s.headers || {}).map(function(e){ return e[0]+'='+e[1]; }).join('\n') : '';
             document.getElementById('mcpEnabled').checked = s ? s.enabled : true;
+            onMcpTransportChange();
             document.getElementById('mcpAllowAll').checked = !!(s && s.allowed_tools == null);
             document.getElementById('mcpDiscoverStatus').textContent = '';
             // Until Discover runs, the only tool names we know are the saved
@@ -517,14 +542,25 @@
             }).join('');
         }
 
+        function parseKeyValueLines(text) {
+            var out = {};
+            text.split('\n').forEach(function(l) {
+                var i = l.indexOf('=');
+                if (i > 0) out[l.slice(0, i).trim()] = l.slice(i + 1).trim();
+            });
+            return out;
+        }
+
         function mcpFormDef() {
             var args = document.getElementById('mcpArgs').value.split('\n').map(function(l){ return l.trim(); }).filter(Boolean);
-            var env = {};
-            document.getElementById('mcpEnv').value.split('\n').forEach(function(l) {
-                var i = l.indexOf('=');
-                if (i > 0) env[l.slice(0, i).trim()] = l.slice(i + 1).trim();
-            });
-            return { command: document.getElementById('mcpCommand').value.trim(), args: args, env: env };
+            return {
+                transport: document.getElementById('mcpTransport').value,
+                command: document.getElementById('mcpCommand').value.trim(),
+                args: args,
+                env: parseKeyValueLines(document.getElementById('mcpEnv').value),
+                url: document.getElementById('mcpUrl').value.trim(),
+                headers: parseKeyValueLines(document.getElementById('mcpHeaders').value),
+            };
         }
 
         async function discoverMcp() {
@@ -548,17 +584,12 @@
             document.querySelectorAll('#mcpToolChecks input[data-mcp-tool]').forEach(function(cb) {
                 mcpKnownTools[parseInt(cb.dataset.mcpTool, 10)].checked = cb.checked;
             });
-            var def = mcpFormDef();
-            var body = {
-                name: document.getElementById('mcpName').value.trim(),
-                command: def.command,
-                args: def.args,
-                env: def.env,
-                enabled: document.getElementById('mcpEnabled').checked,
-                allowed_tools: document.getElementById('mcpAllowAll').checked
-                    ? null
-                    : mcpKnownTools.filter(function(t){ return t.checked; }).map(function(t){ return t.name; }),
-            };
+            var body = mcpFormDef();
+            body.name = document.getElementById('mcpName').value.trim();
+            body.enabled = document.getElementById('mcpEnabled').checked;
+            body.allowed_tools = document.getElementById('mcpAllowAll').checked
+                ? null
+                : mcpKnownTools.filter(function(t){ return t.checked; }).map(function(t){ return t.name; });
             var r = id ? await api('PUT', '/api/mcp/'+id, body) : await api('POST', '/api/mcp', body);
             if (r.error) { alert(r.error); return; }
             closeModal('mcpModal');

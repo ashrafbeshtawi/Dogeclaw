@@ -44,6 +44,41 @@ test.describe('mcp tab', () => {
     expect(missing.status()).toBe(400);
   });
 
+  test('api: http transport round-trips and validates url', async ({ page }) => {
+    const name = await uniqueName('mcphttp');
+    const created = await page.request.post('/api/mcp', {
+      data: { name, transport: 'http', url: 'https://mcp.example.com/mcp', headers: { Authorization: 'Bearer x' } },
+    });
+    expect(created.ok()).toBeTruthy();
+    const server = await created.json();
+    try {
+      expect(server.transport).toBe('http');
+      expect(server.url).toBe('https://mcp.example.com/mcp');
+      expect(server.headers).toEqual({ Authorization: 'Bearer x' });
+      expect(server.command).toBeNull();
+    } finally {
+      await page.request.delete(`/api/mcp/${server.id}`);
+    }
+
+    const noUrl = await page.request.post('/api/mcp', {
+      data: { name: await uniqueName('mcpbad'), transport: 'http' },
+    });
+    expect(noUrl.status()).toBe(400);
+
+    const badUrl = await page.request.post('/api/mcp', {
+      data: { name: await uniqueName('mcpbad'), transport: 'http', url: 'not a url' },
+    });
+    expect(badUrl.status()).toBe(400);
+  });
+
+  test('api: discover on an unreachable http url fails cleanly', async ({ page }) => {
+    const r = await page.request.post('/api/mcp/discover', {
+      data: { transport: 'http', url: 'http://127.0.0.1:1/mcp' },
+    });
+    expect(r.status()).toBe(400);
+    expect((await r.json()).error).toBeTruthy();
+  });
+
   test('api: discover on a bogus command fails cleanly', async ({ page }) => {
     const r = await page.request.post('/api/mcp/discover', {
       data: { command: 'definitely-not-a-real-command-xyz' },
