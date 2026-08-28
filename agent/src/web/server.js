@@ -19,6 +19,12 @@ import {
   deleteJob as deleteCronJob,
 } from '../db/crons.js';
 import { reloadCronJobs } from '../cron/runner.js';
+import {
+  listServers as listMcpServers,
+  createServer as createMcpServer,
+  updateServer as updateMcpServer,
+  deleteServer as deleteMcpServer,
+} from '../db/mcpServers.js';
 import { BOT_COMMANDS } from '../channels/telegram.js';
 import { getAllSettings, setSetting } from '../db/settings.js';
 import {
@@ -51,6 +57,12 @@ let telegramManager = null;
 
 export function setTelegramManager(tm) {
   telegramManager = tm;
+}
+
+let mcpManager = null;
+
+export function setMcpManager(m) {
+  mcpManager = m;
 }
 
 export function createWebServer(agent) {
@@ -489,6 +501,100 @@ export function createWebServer(agent) {
     if (telegramManager) telegramManager.reload().catch(e => console.error('[telegram] reload failed:', e.message));
     // Channels cascade to cron_jobs via FK; refresh the runner so it drops them.
     reloadCronJobs();
+  });
+
+  // --- MCP servers CRUD ---
+  // Changes take effect immediately: every write reloads the MCP manager,
+  // which reconnects servers and re-registers their allowlisted tools.
+  const reloadMcp = () => {
+    if (mcpManager) mcpManager.reload().catch(e => console.error('[mcp] reload failed:', e.message));
+  };
+  const MCP_NAME_RE = /^[a-zA-Z0-9_-]+$/;
+
+  app.get('/api/mcp', authMiddleware, async (req, res) => {
+    res.json({ servers: await listMcpServers() });
+  });
+
+  // Shared validate/normalize for POST and PUT. Returns {error} or the
+  // normalized field set for the db layer.
+  const mcpFieldsFromBody = (body) => {
+    const { name, transport, command, args, env, url, headers, allowed_tools, enabled } = body;
+    const tr = transport || 'stdio';
+    if (!name) return { error: 'name required' };
+    if (!MCP_NAME_RE.test(name)) {
+      return { error: 'name must match [a-zA-Z0-9_-]+ (it becomes the tool prefix)' };
+    }
+    if (!['stdio', 'http'].includes(tr)) return { error: 'transport must be stdio or http' };
+    if (tr === 'stdio' && !command) return { error: 'command required for stdio transport' };
+    if (tr === 'http') {
+      if (!url) return { error: 'url required for http transport' };
+      try { new URL(url); } catch { return { error: 'url is not a valid URL' }; }
+    }
+    return {
+      fields: {
+        name,
+        transport: tr,
+        command: command || null,
+        args: args || [],
+        env: env || {},
+        url: url || null,
+        headers: headers || {},
+        allowedTools: allowed_tools === undefined ? [] : allowed_tools,
+        enabled: enabled ?? true,
+      },
+    };
+  };
+
+  app.post('/api/mcp', authMiddleware, async (req, res) => {
+    const { error, fields } = mcpFieldsFromBody(req.body);
+    if (error) return res.status(400).json({ error });
+    try {
+      const server = await createMcpServer(fields);
+      res.json(server);
+      reloadMcp();
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.put('/api/mcp/:id', authMiddleware, async (req, res) => {
+    const { error, fields } = mcpFieldsFromBody(req.body);
+    if (error) return res.status(400).json({ error });
+    try {
+      const server = await updateMcpServer(req.params.id, fields);
+      if (!server) return res.status(404).json({ error: 'not found' });
+      res.json(server);
+      reloadMcp();
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.delete('/api/mcp/:id', authMiddleware, async (req, res) => {
+    const ok = await deleteMcpServer(req.params.id);
+    if (!ok) return res.status(404).json({ error: 'not found' });
+    res.json({ ok: true });
+    reloadMcp();
+  });
+
+  // Ephemeral connect + listTools for the admin UI's Discover button.
+  // Takes the definition from the body so unsaved forms can be tested too.
+  app.post('/api/mcp/discover', authMiddleware, async (req, res) => {
+    const { transport, command, args, env, url, headers } = req.body;
+    const tr = transport || 'stdio';
+    if (tr === 'stdio' && !command) return res.status(400).json({ error: 'command required' });
+    if (tr === 'http' && !url) return res.status(400).json({ error: 'url required' });
+    if (!mcpManager) return res.status(503).json({ error: 'MCP manager not ready' });
+    try {
+      const tools = await mcpManager.discover({
+        transport: tr,
+        command, args: args || [], env: env || {},
+        url, headers: headers || {},
+      });
+      res.json({ tools });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
   });
 
   // --- Cron jobs CRUD ---
