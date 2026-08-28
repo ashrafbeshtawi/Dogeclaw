@@ -29,7 +29,6 @@ config.paths = {
   queues: `${config.workspace}/queues`,
   logs: `${config.workspace}/logs`,
   cronFile: `${config.workspace}/cron.json`,
-  mcpConfigFile: `${config.workspace}/mcp-config.json`,
   // SQL migrations the agent applies on boot. Baked into the image at
   // /opt/migrations/sql; dev compose mounts the host source over it.
   migrationsDir: '/opt/migrations/sql',

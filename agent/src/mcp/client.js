@@ -1,8 +1,6 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { readFile } from 'node:fs/promises';
-import config from '../config.js';
-import { listServers, listEnabledServers, createServer } from '../db/mcpServers.js';
+import { listEnabledServers } from '../db/mcpServers.js';
 import { filterAllowedTools } from '../lib/mcpAllowlist.js';
 import { registerMcpTools } from '../tools/mcp.js';
 
@@ -28,38 +26,7 @@ export class McpManager {
   }
 
   async start() {
-    await this.#importLegacyConfigFile();
     await this.reload();
-  }
-
-  // One-time upgrade path: if the DB registry is empty but a workspace
-  // mcp-config.json exists, import its servers with allowed_tools = NULL
-  // (expose-all), which is exactly what the file era did. The file is left
-  // in place but ignored from then on — the DB is the only source of truth.
-  async #importLegacyConfigFile() {
-    let fileConfig;
-    try {
-      fileConfig = JSON.parse(await readFile(config.paths.mcpConfigFile, 'utf-8'));
-    } catch {
-      return;
-    }
-    if (!fileConfig?.servers) return;
-    if ((await listServers()).length > 0) return;
-    for (const [name, def] of Object.entries(fileConfig.servers)) {
-      try {
-        await createServer({
-          name,
-          command: def.command,
-          args: def.args || [],
-          env: def.env || {},
-          allowedTools: null,
-          enabled: true,
-        });
-        console.log(`[mcp] Imported legacy mcp-config.json server: ${name}`);
-      } catch (err) {
-        console.error(`[mcp] Failed to import legacy server ${name}:`, err.message);
-      }
-    }
   }
 
   // Tear everything down and rebuild from the DB. Called at boot and after
