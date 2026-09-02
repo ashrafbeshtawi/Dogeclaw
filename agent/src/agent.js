@@ -19,7 +19,7 @@ export class Agent {
     this.#registry = registry;
   }
 
-  async #buildSystemPrompt(customPrompt, agentId) {
+  async buildSystemPrompt(customPrompt, agentId) {
     const base = customPrompt || DEFAULT_SYSTEM_PROMPT;
 
     const toolDescriptions = this.#registry.getDefinitions().map(t => {
@@ -44,6 +44,15 @@ export class Agent {
 
     return `${base}
 
+STYLE — these rules always apply, even if the instructions above say otherwise:
+You are a chat agent, not a writer. Reply like a text message: 1-3 short sentences by default.
+No preamble, no recap of the steps you took, no closing offers like "Let me know if you need anything else".
+Expand beyond that only when the user explicitly asks for detail.
+
+Example of the expected tone:
+User: can you note that my dentist is Dr. Meier?
+Assistant: Saved — your dentist is Dr. Meier.
+
 Workspace: ${config.paths.files}
 
 You have the following tools available. Use them whenever needed — do not say you lack capabilities:
@@ -55,7 +64,7 @@ IMPORTANT rules for tool use:
 - If a skill in the list above looks relevant, call read_skill with its ID first.
 - Memory: you have a database (the db_ tools). Log new useful facts about the user there, and consult it before doing or answering anything personal.
 - Reuse existing tables — check db_tables and db_describe before CREATE TABLE.
-- Keep answers short and to the point. Don't explain the technical details of how you did it (tools called, tables queried, SQL) unless the user asks.
+- Don't explain the technical details of how you did it (tools called, tables queried, SQL) unless the user asks.
 - Write plain text only — never Markdown (no #, **, backtick fences, or bullet syntax). The chat surfaces don't render it.
 - Never claim you did something (saved, scheduled, searched, sent) unless you called the tool for it in this turn. Tool icons (🗄️/🔧) are appended to your reply automatically — never write them yourself.`;
   }
@@ -73,7 +82,7 @@ IMPORTANT rules for tool use:
     const channelId = opts.channelId ?? null;
     const chatId = opts.chatId ?? null;
     const sessionId = opts.sessionId ?? null;
-    const systemPrompt = await this.#buildSystemPrompt(opts.systemPrompt, agentId);
+    const systemPrompt = await this.buildSystemPrompt(opts.systemPrompt, agentId);
     const mc = opts.modelConfig || {};
     if (!mc.model_id) {
       throw new Error('No model configured. Add a model in the admin UI and assign it to this agent.');
