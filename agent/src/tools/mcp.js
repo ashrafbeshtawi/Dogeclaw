@@ -8,11 +8,17 @@ export function registerMcpTools(registry, mcpClient) {
         type: 'function',
         function: {
           name,
-          description: `[MCP:${serverName}] ${tool.description || tool.name}`,
+          description: tool.description || tool.name,
           parameters: tool.inputSchema || { type: 'object', properties: {} },
         },
       }, async (args) => {
         return mcpClient.callTool(serverName, tool.name, args);
+      }, {
+        // Visibility + prompt grouping: only agents assigned to this server
+        // see the tool; the prompt groups tools under the server header, so
+        // the per-tool [MCP:server] tag is gone.
+        mcpServer: serverName,
+        serverDescription: mcpClient.getServerDescription(serverName),
       });
     }
   }

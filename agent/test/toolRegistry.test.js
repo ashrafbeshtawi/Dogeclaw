@@ -21,6 +21,15 @@ test('register / has / list / getDefinitions', () => {
   assert.deepEqual(reg.getDefinitions(), [DEF]);
 });
 
+test('getEntries exposes meta (null when not given)', () => {
+  const reg = makeRegistry();
+  reg.register('mcp_x_y', DEF, async () => ({}), { mcpServer: 'x', serverDescription: 'd' });
+  const entries = reg.getEntries();
+  assert.deepEqual(entries.map(e => e.name), ['echo', 'mcp_x_y']);
+  assert.equal(entries[0].meta, null);
+  assert.deepEqual(entries[1].meta, { mcpServer: 'x', serverDescription: 'd' });
+});
+
 test('execute passes object args and context through', async () => {
   const reg = makeRegistry();
   const res = await reg.execute('echo', { a: 1 }, { agentId: 7 });

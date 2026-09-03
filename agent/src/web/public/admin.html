@@ -92,11 +92,11 @@
             </div>
             <div class="overflow-x-auto rounded-2xl border border-white/5 bg-base-100">
                 <table class="table table-sm">
-                    <thead><tr><th>Name</th><th>Command</th><th>Tools</th><th>Enabled</th><th></th></tr></thead>
+                    <thead><tr><th>Name</th><th>Command</th><th>Agents</th><th>Enabled</th><th></th></tr></thead>
                     <tbody id="mcpTable"></tbody>
                 </table>
             </div>
-            <div class="hint">Tools are exposed to agents as <code>mcp_&lt;server&gt;_&lt;tool&gt;</code>. Keep the allowlist tight — a fat tool catalog makes small models stop calling tools. Changes reconnect immediately, no restart needed.</div>
+            <div class="hint">Tools are exposed as <code>mcp_&lt;server&gt;_&lt;tool&gt;</code> — all of them, since MCP servers can change their tool set without notice. Only agents assigned to a server see its tools; a server with no agents is hidden from everyone. Changes reconnect immediately, no restart needed.</div>
         </div>
 
         <!-- Cron Jobs -->
@@ -342,6 +342,9 @@
             <label>Name</label>
             <input type="text" id="mcpName" placeholder="google-calendar">
             <div class="field-hint">Letters, digits, <code>-</code>, <code>_</code> only — becomes the tool prefix <code>mcp_&lt;name&gt;_*</code>.</div>
+            <label>Description</label>
+            <input type="text" id="mcpDescription" placeholder="Company calendar: events, invites, availability">
+            <div class="field-hint">Shown to the agent in its system prompt — one line on what this server is for.</div>
             <label>Transport</label>
             <select id="mcpTransport" onchange="onMcpTransportChange()">
                 <option value="stdio">stdio (local process)</option>
@@ -364,8 +367,9 @@
             <label>Tools</label>
             <button class="btn btn-sm btn-ghost border border-white/10" onclick="discoverMcp()" id="mcpDiscoverBtn">Discover tools</button>
             <div class="field-hint" id="mcpDiscoverStatus"></div>
-            <div class="dc-toggle"><input type="checkbox" class="toggle toggle-primary toggle-sm" id="mcpAllowAll" onchange="renderMcpToolChecks()"><label for="mcpAllowAll">Expose all tools (not recommended)</label></div>
-            <div id="mcpToolChecks" class="max-h-40 overflow-y-auto border border-white/10 rounded-md p-2 bg-white/[0.02]"></div>
+            <div id="mcpToolList" class="max-h-40 overflow-y-auto border border-white/10 rounded-md p-2 bg-white/[0.02]" style="display:none"></div>
+            <label>Assigned Agents (empty = hidden from all agents)</label>
+            <div id="mcpAgentsCheckboxes" class="max-h-32 overflow-y-auto border border-white/10 rounded-md p-2 bg-white/[0.02]"></div>
             <div class="dc-toggle"><input type="checkbox" class="toggle toggle-primary toggle-sm" id="mcpEnabled" checked><label for="mcpEnabled">Enabled</label></div>
             <div class="btn-row">
                 <button class="btn btn-sm btn-ghost border border-white/10 btn-cancel" onclick="closeModal('mcpModal')">Cancel</button>
@@ -389,7 +393,7 @@
     <script>
         var models = [], agents = [], channels = [], skills = [], siteConfig = {}, crons = [], sessions = [], settings = {};
         var events = [];
-        var mcpServers = [], mcpKnownTools = [];
+        var mcpServers = [];
 
         var TIMEZONES = (typeof Intl !== 'undefined' && Intl.supportedValuesOf)
             ? Intl.supportedValuesOf('timeZone')
@@ -491,12 +495,14 @@
                 var cmd = s.transport === 'http'
                     ? s.url
                     : s.command + (s.args && s.args.length ? ' ' + s.args.join(' ') : '');
-                var tools = s.allowed_tools == null
-                    ? '<span class="badge badge-sm badge-tag">all</span>'
-                    : '<span class="badge badge-sm badge-tag">' + s.allowed_tools.length + ' allowed</span>';
+                var assigned = (s.agent_ids || []).map(function(id) {
+                    var a = find(agents, id);
+                    return a ? '<span class="badge badge-sm badge-tag">' + esc(a.name) + '</span>' : '';
+                }).join(' ');
+                var agentsCell = assigned || '<span class="badge badge-sm badge-off">hidden</span>';
                 return '<tr><td><strong>'+esc(s.name)+'</strong></td>'
                     +'<td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><code>'+esc(cmd)+'</code></td>'
-                    +'<td>'+tools+'</td>'
+                    +'<td>'+agentsCell+'</td>'
                     +'<td><span class="badge badge-sm '+(s.enabled?'badge-on':'badge-off')+'">'+(s.enabled?'on':'off')+'</span></td>'
                     +'<td class="actions"><button onclick="editMcp('+s.id+')">Edit</button>'
                     +'<button class="danger" onclick="deleteMcp('+s.id+')">Delete</button></td></tr>';
@@ -514,33 +520,19 @@
             document.getElementById('mcpEnv').value = s ? Object.entries(s.env || {}).map(function(e){ return e[0]+'='+e[1]; }).join('\n') : '';
             document.getElementById('mcpUrl').value = s ? (s.url || '') : '';
             document.getElementById('mcpHeaders').value = s ? Object.entries(s.headers || {}).map(function(e){ return e[0]+'='+e[1]; }).join('\n') : '';
+            document.getElementById('mcpDescription').value = s ? (s.description || '') : '';
             document.getElementById('mcpEnabled').checked = s ? s.enabled : true;
             onMcpTransportChange();
-            document.getElementById('mcpAllowAll').checked = !!(s && s.allowed_tools == null);
             document.getElementById('mcpDiscoverStatus').textContent = '';
-            // Until Discover runs, the only tool names we know are the saved
-            // allowlist — show them checked so a plain edit round-trips.
-            mcpKnownTools = (s && s.allowed_tools || []).map(function(n){ return { name: n, description: '', checked: true }; });
-            renderMcpToolChecks();
+            document.getElementById('mcpToolList').style.display = 'none';
+            var assigned = s ? (s.agent_ids || []) : [];
+            document.getElementById('mcpAgentsCheckboxes').innerHTML = agents.map(function(a) {
+                var checked = assigned.includes(a.id) ? 'checked' : '';
+                return '<label style="display:block;font-size:0.8rem;margin-bottom:0.2rem"><input type="checkbox" value="' + a.id + '" ' + checked + ' style="margin-right:0.4rem;accent-color:#dc2626"> ' + esc(a.name) + '</label>';
+            }).join('');
             document.getElementById('mcpModal').classList.add('open');
         }
         function editMcp(id){ openMcpModal(id); }
-
-        function renderMcpToolChecks() {
-            var allowAll = document.getElementById('mcpAllowAll').checked;
-            var el = document.getElementById('mcpToolChecks');
-            if (!mcpKnownTools.length) {
-                el.innerHTML = '<span class="field-hint">' + (allowAll ? 'Every tool the server offers will be exposed.' : 'No tools selected — use Discover to list what the server offers.') + '</span>';
-                return;
-            }
-            el.innerHTML = mcpKnownTools.map(function(t, i) {
-                return '<label class="dc-toggle" style="display:block" title="'+esc(t.description)+'">'
-                    +'<input type="checkbox" data-mcp-tool="'+i+'" '+(t.checked?'checked':'')+(allowAll?' disabled':'')+'> '
-                    +'<code>'+esc(t.name)+'</code>'
-                    +(t.description ? ' <span class="field-hint">'+esc(t.description.slice(0,80))+'</span>' : '')
-                    +'</label>';
-            }).join('');
-        }
 
         function parseKeyValueLines(text) {
             var out = {};
@@ -563,17 +555,23 @@
             };
         }
 
+        // Preview only: all discovered tools get exposed — there is no
+        // selection, since MCP tool sets change without notice.
         async function discoverMcp() {
             var st = document.getElementById('mcpDiscoverStatus');
             st.textContent = 'Connecting…';
             try {
                 var r = await api('POST', '/api/mcp/discover', mcpFormDef());
                 if (r.error) { st.textContent = 'Failed: ' + r.error; return; }
-                var checked = {};
-                mcpKnownTools.forEach(function(t){ if (t.checked) checked[t.name] = true; });
-                mcpKnownTools = (r.tools || []).map(function(t){ return { name: t.name, description: t.description || '', checked: !!checked[t.name] }; });
-                st.textContent = 'Server offers ' + mcpKnownTools.length + ' tool(s) — pick the ones the agent should get.';
-                renderMcpToolChecks();
+                var tools = r.tools || [];
+                st.textContent = 'Server offers ' + tools.length + ' tool(s) — all of them will be exposed to assigned agents.';
+                var el = document.getElementById('mcpToolList');
+                el.style.display = tools.length ? 'block' : 'none';
+                el.innerHTML = tools.map(function(t) {
+                    return '<div style="font-size:0.8rem;margin-bottom:0.2rem"><code>'+esc(t.name)+'</code>'
+                        +(t.description ? ' <span class="field-hint">'+esc(t.description.slice(0,80))+'</span>' : '')
+                        +'</div>';
+                }).join('');
             } catch (err) {
                 st.textContent = 'Error: ' + err.message;
             }
@@ -581,15 +579,11 @@
 
         async function saveMcp() {
             var id = document.getElementById('mcpId').value;
-            document.querySelectorAll('#mcpToolChecks input[data-mcp-tool]').forEach(function(cb) {
-                mcpKnownTools[parseInt(cb.dataset.mcpTool, 10)].checked = cb.checked;
-            });
             var body = mcpFormDef();
             body.name = document.getElementById('mcpName').value.trim();
+            body.description = document.getElementById('mcpDescription').value.trim();
             body.enabled = document.getElementById('mcpEnabled').checked;
-            body.allowed_tools = document.getElementById('mcpAllowAll').checked
-                ? null
-                : mcpKnownTools.filter(function(t){ return t.checked; }).map(function(t){ return t.name; });
+            body.agent_ids = Array.from(document.getElementById('mcpAgentsCheckboxes').querySelectorAll('input:checked')).map(function(i){ return parseInt(i.value); });
             var r = id ? await api('PUT', '/api/mcp/'+id, body) : await api('POST', '/api/mcp', body);
             if (r.error) { alert(r.error); return; }
             closeModal('mcpModal');
