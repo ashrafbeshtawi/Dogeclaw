@@ -1,0 +1,7 @@
+# Keep the build context small and the baked image clean: node_modules is
+# installed inside the image (npm ci in the Dockerfile) — a host-built copy
+# (possibly macOS-native binaries) must never ride in via COPY.
+**/node_modules
+.git
+tests/test-results
+tests/playwright-report
