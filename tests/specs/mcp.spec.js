@@ -9,28 +9,64 @@ test.describe('mcp tab', () => {
   test('api: create, list, update, delete a server', async ({ page }) => {
     const name = await uniqueName('mcp');
     const created = await page.request.post('/api/mcp', {
-      data: { name, command: 'true', args: ['--flag'], env: { FOO: 'bar' }, allowed_tools: ['one'] },
+      data: { name, description: 'test server', command: 'true', args: ['--flag'], env: { FOO: 'bar' } },
     });
     expect(created.ok()).toBeTruthy();
     const server = await created.json();
     expect(server.name).toBe(name);
-    expect(server.allowed_tools).toEqual(['one']);
+    expect(server.description).toBe('test server');
 
     try {
       const list = await (await page.request.get('/api/mcp')).json();
-      expect(list.servers.some(s => s.id === server.id)).toBeTruthy();
+      const row = list.servers.find(s => s.id === server.id);
+      expect(row).toBeTruthy();
+      // No assignment = hidden from every agent
+      expect(row.agent_ids).toEqual([]);
 
-      // Full-row update; allowed_tools null (= all) must round-trip.
       const updated = await page.request.put(`/api/mcp/${server.id}`, {
-        data: { name, command: 'true', args: [], env: {}, allowed_tools: null, enabled: false },
+        data: { name, description: 'updated', command: 'true', args: [], env: {}, enabled: false },
       });
       expect(updated.ok()).toBeTruthy();
-      const row = await updated.json();
-      expect(row.allowed_tools).toBeNull();
-      expect(row.enabled).toBe(false);
+      const upd = await updated.json();
+      expect(upd.description).toBe('updated');
+      expect(upd.enabled).toBe(false);
     } finally {
       const del = await page.request.delete(`/api/mcp/${server.id}`);
       expect(del.ok()).toBeTruthy();
+    }
+  });
+
+  test('api: agent assignment round-trips and cascades on agent delete', async ({ page }) => {
+    const serverName = await uniqueName('mcp');
+    const agentName = await uniqueName('agent');
+    const a = await page.request.post('/api/agents', { data: { name: agentName, system_prompt: '' } });
+    const agentId = (await a.json()).id;
+    const created = await page.request.post('/api/mcp', {
+      data: { name: serverName, command: 'true', agent_ids: [agentId] },
+    });
+    const server = await created.json();
+
+    try {
+      let list = await (await page.request.get('/api/mcp')).json();
+      expect(list.servers.find(s => s.id === server.id).agent_ids).toEqual([agentId]);
+
+      // Unassign via PUT with empty array
+      await page.request.put(`/api/mcp/${server.id}`, {
+        data: { name: serverName, command: 'true', agent_ids: [] },
+      });
+      list = await (await page.request.get('/api/mcp')).json();
+      expect(list.servers.find(s => s.id === server.id).agent_ids).toEqual([]);
+
+      // Re-assign, then deleting the agent must drop the assignment (FK CASCADE)
+      await page.request.put(`/api/mcp/${server.id}`, {
+        data: { name: serverName, command: 'true', agent_ids: [agentId] },
+      });
+      await page.request.delete(`/api/agents/${agentId}`);
+      list = await (await page.request.get('/api/mcp')).json();
+      expect(list.servers.find(s => s.id === server.id).agent_ids).toEqual([]);
+    } finally {
+      await page.request.delete(`/api/mcp/${server.id}`);
+      await page.request.delete(`/api/agents/${agentId}`);
     }
   });
 
@@ -87,32 +123,43 @@ test.describe('mcp tab', () => {
     expect((await r.json()).error).toBeTruthy();
   });
 
-  test('ui: create, edit, delete a server via the modal', async ({ page }) => {
+  test('ui: create, assign an agent, delete a server via the modal', async ({ page }) => {
     const name = await uniqueName('mcpui');
+    const agentName = await uniqueName('agent');
+    const a = await page.request.post('/api/agents', { data: { name: agentName, system_prompt: '' } });
+    const agentId = (await a.json()).id;
 
-    await openAdminTab(page, 'mcp');
-    await page.click('button:has-text("+ New Server")');
-    await expect(page.locator('#mcpModal')).toHaveClass(/open/);
+    try {
+      await openAdminTab(page, 'mcp');
+      await page.click('button:has-text("+ New Server")');
+      await expect(page.locator('#mcpModal')).toHaveClass(/open/);
 
-    await page.fill('#mcpName', name);
-    await page.fill('#mcpCommand', 'true');
-    await page.fill('#mcpArgs', '--a\n--b');
-    await page.fill('#mcpEnv', 'KEY=value');
-    await page.click('#mcpModal .btn-save');
-    await expect(page.locator('#mcpModal')).not.toHaveClass(/open/);
+      await page.fill('#mcpName', name);
+      await page.fill('#mcpDescription', 'ui test server');
+      await page.fill('#mcpCommand', 'true');
+      await page.fill('#mcpArgs', '--a\n--b');
+      await page.fill('#mcpEnv', 'KEY=value');
+      // No agents checked → hidden from every agent
+      await page.click('#mcpModal .btn-save');
+      await expect(page.locator('#mcpModal')).not.toHaveClass(/open/);
 
-    const row = page.locator('#mcpTable tr', { hasText: name });
-    await expect(row).toContainText('true --a --b');
-    await expect(row).toContainText('0 allowed');
-    await expect(row.locator('.badge-on')).toHaveText('on');
+      const row = page.locator('#mcpTable tr', { hasText: name });
+      await expect(row).toContainText('true --a --b');
+      await expect(row).toContainText('hidden');
+      await expect(row.locator('.badge-on')).toHaveText('on');
 
-    // Edit: switch to expose-all
-    await row.locator('button:has-text("Edit")').click();
-    await page.check('#mcpAllowAll');
-    await page.click('#mcpModal .btn-save');
-    await expect(page.locator('#mcpTable tr', { hasText: name })).toContainText('all');
+      // Edit: assign the agent — badge switches from "hidden" to the name
+      await row.locator('button:has-text("Edit")').click();
+      await page.check(`#mcpAgentsCheckboxes input[value="${agentId}"]`);
+      await page.click('#mcpModal .btn-save');
+      const updatedRow = page.locator('#mcpTable tr', { hasText: name });
+      await expect(updatedRow).toContainText(agentName);
+      await expect(updatedRow).not.toContainText('hidden');
 
-    await page.locator('#mcpTable tr', { hasText: name }).locator('button:has-text("Delete")').click();
-    await expect(page.locator('#mcpTable tr', { hasText: name })).toHaveCount(0);
+      await updatedRow.locator('button:has-text("Delete")').click();
+      await expect(page.locator('#mcpTable tr', { hasText: name })).toHaveCount(0);
+    } finally {
+      await page.request.delete(`/api/agents/${agentId}`);
+    }
   });
 });

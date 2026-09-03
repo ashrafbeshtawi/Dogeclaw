@@ -2,7 +2,6 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { listEnabledServers } from '../db/mcpServers.js';
-import { filterAllowedTools } from '../lib/mcpAllowlist.js';
 import { registerMcpTools } from '../tools/mcp.js';
 
 // A hung `npx` (or a server that connects but never answers listTools) must
@@ -34,7 +33,8 @@ function withTimeout(promise, label) {
 export class McpManager {
   #registry;
   #clients = new Map();
-  #tools = new Map(); // serverName -> allowlisted tool[]
+  #tools = new Map(); // serverName -> tool[] (all tools the server offers)
+  #descriptions = new Map(); // serverName -> admin-written description
 
   constructor(registry) {
     this.#registry = registry;
@@ -52,6 +52,7 @@ export class McpManager {
     }
     this.#clients.clear();
     this.#tools.clear();
+    this.#descriptions.clear();
     for (const name of this.#registry.list()) {
       if (name.startsWith('mcp_')) this.#registry.unregister(name);
     }
@@ -69,12 +70,15 @@ export class McpManager {
       const client = new Client({ name: `dogeclaw-${server.name}`, version: '0.1.0' });
       await withTimeout(client.connect(transport), `connect to ${server.name}`);
 
+      // Every tool the server offers is exposed — MCP tool sets change
+      // without notice, so a saved selection would silently rot. Access is
+      // controlled per agent instead (agent_mcp_servers).
       const { tools } = await withTimeout(client.listTools(), `listTools on ${server.name}`);
-      const allowed = filterAllowedTools(tools || [], server.allowed_tools);
       this.#clients.set(server.name, client);
-      this.#tools.set(server.name, allowed);
+      this.#tools.set(server.name, tools || []);
+      this.#descriptions.set(server.name, server.description || '');
 
-      console.log(`[mcp] Connected to ${server.name}: ${allowed.length}/${(tools || []).length} tools exposed`);
+      console.log(`[mcp] Connected to ${server.name}: ${(tools || []).length} tools exposed`);
     } catch (err) {
       console.error(`[mcp] Failed to connect to ${server.name}:`, err.message);
     }
@@ -97,6 +101,10 @@ export class McpManager {
 
   getConnectedServers() {
     return this.#tools;
+  }
+
+  getServerDescription(serverName) {
+    return this.#descriptions.get(serverName) || '';
   }
 
   async callTool(serverName, toolName, args) {

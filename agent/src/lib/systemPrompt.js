@@ -4,9 +4,28 @@
 export const DEFAULT_SYSTEM_PROMPT = `You are DogeClaw, a personal AI agent running inside a Docker container.
 Be concise and practical.`;
 
+export function formatToolLine(definition) {
+  const fn = definition.function;
+  const params = fn.parameters?.properties
+    ? Object.keys(fn.parameters.properties).join(', ')
+    : '';
+  return `- ${fn.name}(${params}): ${fn.description}`;
+}
+
+// MCP tools are grouped under their server so the model gets the server's
+// context once, instead of a repeated per-tool tag. groups: [{ name,
+// description, entries: [{ definition }] }].
+function renderMcpBlock(groups) {
+  if (!groups?.length) return '';
+  return '\n\n' + groups.map(g =>
+    `MCP server "${g.name}"${g.description ? ` — ${g.description}` : ''}. Its tools (prefixed mcp_${g.name}_) belong together:\n`
+    + g.entries.map(e => formatToolLine(e.definition)).join('\n'),
+  ).join('\n\n');
+}
+
 // The STYLE block and tool rules are appended OUTSIDE the replaceable base,
 // so a custom per-agent system_prompt from the admin UI can never strip them.
-export function composeSystemPrompt({ customPrompt, workspace, toolDescriptions, skillsBlock = '' }) {
+export function composeSystemPrompt({ customPrompt, workspace, toolDescriptions, skillsBlock = '', mcpGroups = [] }) {
   const base = customPrompt || DEFAULT_SYSTEM_PROMPT;
 
   return `${base}
@@ -23,7 +42,7 @@ Assistant: Saved — your dentist is Dr. Meier.
 Workspace: ${workspace}
 
 You have the following tools available. Use them whenever needed — do not say you lack capabilities:
-${toolDescriptions}${skillsBlock}
+${toolDescriptions}${renderMcpBlock(mcpGroups)}${skillsBlock}
 
 IMPORTANT rules for tool use:
 - Act, don't ask. Never say "I cannot" — if a tool can do it, use it.

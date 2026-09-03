@@ -5,7 +5,9 @@ import { composeUserText } from './lib/composeUserText.js';
 import { timestampNote } from './lib/timestamp.js';
 import { toolIcons, appendToolIcons, toolTrace } from './lib/toolIcons.js';
 import { claimsAction, CLAIM_NUDGE } from './lib/claimGuard.js';
-import { composeSystemPrompt } from './lib/systemPrompt.js';
+import { composeSystemPrompt, formatToolLine } from './lib/systemPrompt.js';
+import { visibleEntries, mcpGroups } from './lib/mcpVisibility.js';
+import { getAgentMcpServerNames } from './db/mcpServers.js';
 import { getTimezone } from './db/settings.js';
 
 const MAX_ITERATIONS = 30;
@@ -17,14 +19,21 @@ export class Agent {
     this.#registry = registry;
   }
 
-  async #buildSystemPrompt(customPrompt, agentId) {
-    const toolDescriptions = this.#registry.getDefinitions().map(t => {
-      const fn = t.function;
-      const params = fn.parameters?.properties
-        ? Object.keys(fn.parameters.properties).join(', ')
-        : '';
-      return `- ${fn.name}(${params}): ${fn.description}`;
-    }).join('\n');
+  // The agent's tool view: built-in tools plus the MCP tools of servers this
+  // agent is assigned to. An MCP server with no assignment is visible to no
+  // agent — assignment (agent_mcp_servers) is the access boundary.
+  async #visibleEntries(agentId) {
+    const entries = this.#registry.getEntries();
+    if (!entries.some(e => e.meta?.mcpServer)) return entries;
+    const allowed = agentId ? await getAgentMcpServerNames(agentId) : [];
+    return visibleEntries(entries, allowed);
+  }
+
+  async #buildSystemPrompt(customPrompt, agentId, entries) {
+    const toolDescriptions = entries
+      .filter(e => !e.meta?.mcpServer)
+      .map(e => formatToolLine(e.definition))
+      .join('\n');
 
     // Skills available to this agent
     let skillsBlock = '';
@@ -43,6 +52,7 @@ export class Agent {
       workspace: config.paths.files,
       toolDescriptions,
       skillsBlock,
+      mcpGroups: mcpGroups(entries),
     });
   }
 
@@ -59,7 +69,8 @@ export class Agent {
     const channelId = opts.channelId ?? null;
     const chatId = opts.chatId ?? null;
     const sessionId = opts.sessionId ?? null;
-    const systemPrompt = await this.#buildSystemPrompt(opts.systemPrompt, agentId);
+    const entries = await this.#visibleEntries(agentId);
+    const systemPrompt = await this.#buildSystemPrompt(opts.systemPrompt, agentId, entries);
     const mc = opts.modelConfig || {};
     if (!mc.model_id) {
       throw new Error('No model configured. Add a model in the admin UI and assign it to this agent.');
@@ -118,7 +129,8 @@ export class Agent {
       messages.push(userMsg);
     }
 
-    const tools = this.#registry.getDefinitions();
+    const tools = entries.map(e => e.definition);
+    const visibleNames = new Set(entries.map(e => e.name));
     const apiKey = mc.apiKey || null;
     const llmOpts = { baseUrl, model, think, provider, apiKey };
     const collectedToolCalls = [];
@@ -172,11 +184,16 @@ export class Agent {
       if (onEvent) onEvent('tool_calls', response.tool_calls);
 
       for (const call of response.tool_calls) {
-        const result = await this.#registry.execute(
-          call.function.name,
-          call.function.arguments,
-          { agentId, channelId, chatId, sessionId },
-        );
+        // A tool can be registered globally (another agent's MCP server) yet
+        // invisible to this agent — refuse instead of executing, so per-agent
+        // assignment holds even if the model hallucinates a foreign tool name.
+        const result = visibleNames.has(call.function.name)
+          ? await this.#registry.execute(
+              call.function.name,
+              call.function.arguments,
+              { agentId, channelId, chatId, sessionId },
+            )
+          : { error: `Unknown tool: ${call.function.name}` };
         collectedToolCalls.push({
           name: call.function.name,
           args: call.function.arguments,

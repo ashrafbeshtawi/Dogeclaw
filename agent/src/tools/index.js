@@ -1,8 +1,8 @@
 export class ToolRegistry {
   #tools = new Map();
 
-  register(name, definition, handler) {
-    this.#tools.set(name, { definition, handler });
+  register(name, definition, handler, meta = null) {
+    this.#tools.set(name, { definition, handler, meta });
   }
 
   unregister(name) {
@@ -11,6 +11,14 @@ export class ToolRegistry {
 
   getDefinitions() {
     return [...this.#tools.values()].map(t => t.definition);
+  }
+
+  // Full entries incl. meta ({ mcpServer, serverDescription } on MCP tools) —
+  // used for per-agent visibility filtering and prompt grouping.
+  getEntries() {
+    return [...this.#tools.entries()].map(([name, t]) => ({
+      name, definition: t.definition, meta: t.meta,
+    }));
   }
 
   async execute(name, args, context = {}) {

@@ -24,6 +24,7 @@ import {
   createServer as createMcpServer,
   updateServer as updateMcpServer,
   deleteServer as deleteMcpServer,
+  setServerAgents as setMcpServerAgents,
 } from '../db/mcpServers.js';
 import { BOT_COMMANDS } from '../channels/telegram.js';
 import { getAllSettings, setSetting } from '../db/settings.js';
@@ -505,7 +506,7 @@ export function createWebServer(agent) {
 
   // --- MCP servers CRUD ---
   // Changes take effect immediately: every write reloads the MCP manager,
-  // which reconnects servers and re-registers their allowlisted tools.
+  // which reconnects servers and re-registers their tools.
   const reloadMcp = () => {
     if (mcpManager) mcpManager.reload().catch(e => console.error('[mcp] reload failed:', e.message));
   };
@@ -518,7 +519,7 @@ export function createWebServer(agent) {
   // Shared validate/normalize for POST and PUT. Returns {error} or the
   // normalized field set for the db layer.
   const mcpFieldsFromBody = (body) => {
-    const { name, transport, command, args, env, url, headers, allowed_tools, enabled } = body;
+    const { name, description, transport, command, args, env, url, headers, enabled } = body;
     const tr = transport || 'stdio';
     if (!name) return { error: 'name required' };
     if (!MCP_NAME_RE.test(name)) {
@@ -533,13 +534,13 @@ export function createWebServer(agent) {
     return {
       fields: {
         name,
+        description: description || '',
         transport: tr,
         command: command || null,
         args: args || [],
         env: env || {},
         url: url || null,
         headers: headers || {},
-        allowedTools: allowed_tools === undefined ? [] : allowed_tools,
         enabled: enabled ?? true,
       },
     };
@@ -550,6 +551,10 @@ export function createWebServer(agent) {
     if (error) return res.status(400).json({ error });
     try {
       const server = await createMcpServer(fields);
+      // Only assigned agents see the server's tools; no assignment = hidden.
+      if (Array.isArray(req.body.agent_ids)) {
+        await setMcpServerAgents(server.id, req.body.agent_ids);
+      }
       res.json(server);
       reloadMcp();
     } catch (err) {
@@ -563,6 +568,9 @@ export function createWebServer(agent) {
     try {
       const server = await updateMcpServer(req.params.id, fields);
       if (!server) return res.status(404).json({ error: 'not found' });
+      if (Array.isArray(req.body.agent_ids)) {
+        await setMcpServerAgents(server.id, req.body.agent_ids);
+      }
       res.json(server);
       reloadMcp();
     } catch (err) {
