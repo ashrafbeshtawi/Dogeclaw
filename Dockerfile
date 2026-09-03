@@ -9,10 +9,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
   && rm -rf /var/lib/apt/lists/*
 
-# Bake the agent source as a fallback (used when no volume mount overrides /opt/agent).
-# node_modules is NOT installed at build time — the entrypoint runs `npm install`
-# on every start, into the host-mounted agent/ directory.
+# Bake the agent source AND its production deps into the image. Installing at
+# boot instead meant every fresh container (prod deploys, CI) cold-installed
+# from the npm registry — 90s to 3.5+ min depending on registry weather, which
+# made smoke tests flaky and deploys slow. The stamp file marks the modules as
+# image-built; the entrypoint only reinstalls when it's absent (a dev volume
+# mount over /opt/agent hides the baked modules together with the stamp).
 COPY agent/ /opt/agent/
+RUN cd /opt/agent && npm ci --omit=dev && touch node_modules/.image-baked
 
 # SQL migrations are applied in-process by agent/src/db/migrate.js on startup.
 # Live in /opt/migrations/sql so a sibling volume mount can override during dev
