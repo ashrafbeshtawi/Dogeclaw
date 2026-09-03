@@ -34,6 +34,22 @@ test.describe('skills tab', () => {
     await expect(page.locator('#skillsTable')).not.toContainText(name);
   });
 
+  test('admin-created skills carry no agent owner', async ({ page }) => {
+    const name = await uniqueName('skill');
+    const created = await page.request.post('/api/skills', { data: { name, description: 'owned by admin' } });
+    const skillId = (await created.json()).id;
+
+    try {
+      const res = await page.request.get('/api/skills');
+      const skill = (await res.json()).skills.find(s => s.id === skillId);
+      // NULL owner = human-created; agents can only edit/delete skills whose
+      // created_by_agent_id is their own id.
+      expect(skill.created_by_agent_id).toBeNull();
+    } finally {
+      await page.request.delete(`/api/skills/${skillId}`);
+    }
+  });
+
   test('assigning agents removes the public badge', async ({ page }) => {
     const skillName = await uniqueName('skill');
     const agentName = await uniqueName('agent');
