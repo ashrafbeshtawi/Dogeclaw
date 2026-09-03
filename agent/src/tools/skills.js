@@ -1,4 +1,5 @@
-import { agentQuery } from '../db/pool.js';
+import { agentQuery, adminQuery } from '../db/pool.js';
+import { makeSkillHandlers } from '../lib/skillTools.js';
 
 /**
  * Returns skills available to the given agent:
@@ -49,4 +50,58 @@ export function register(registry) {
     if (result.rowCount === 0) return { error: `Skill ${skill_id} not found or not accessible to this agent` };
     return result.rows[0];
   });
+
+  // Self-managed skills: agents create their own skills and may edit/delete
+  // only those. Runs on the admin connection — see lib/skillTools.js.
+  const handlers = makeSkillHandlers(adminQuery);
+
+  registry.register('create_skill', {
+    type: 'function',
+    function: {
+      name: 'create_skill',
+      description: 'Create a new skill owned by you. Use this to save reusable instructions or knowledge you want to keep for future tasks. The skill is private to you. content holds the full skill text.',
+      parameters: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'Unique short name for the skill' },
+          description: { type: 'string', description: 'One-line summary shown in your skill list' },
+          content: { type: 'string', description: 'The full skill text: instructions, knowledge, steps' },
+        },
+        required: ['name'],
+      },
+    },
+  }, handlers.createSkill);
+
+  registry.register('update_skill', {
+    type: 'function',
+    function: {
+      name: 'update_skill',
+      description: 'Update a skill you created (you cannot edit skills created by the admin). Only the fields you pass are changed.',
+      parameters: {
+        type: 'object',
+        properties: {
+          skill_id: { type: 'number', description: 'ID of the skill to update' },
+          name: { type: 'string', description: 'New name' },
+          description: { type: 'string', description: 'New one-line summary' },
+          content: { type: 'string', description: 'New full skill text' },
+        },
+        required: ['skill_id'],
+      },
+    },
+  }, handlers.updateSkill);
+
+  registry.register('delete_skill', {
+    type: 'function',
+    function: {
+      name: 'delete_skill',
+      description: 'Delete a skill you created (you cannot delete skills created by the admin).',
+      parameters: {
+        type: 'object',
+        properties: {
+          skill_id: { type: 'number', description: 'ID of the skill to delete' },
+        },
+        required: ['skill_id'],
+      },
+    },
+  }, handlers.deleteSkill);
 }
