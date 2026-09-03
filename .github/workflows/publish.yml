@@ -33,7 +33,9 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: tests/package-lock.json
+          cache-dependency-path: |
+            tests/package-lock.json
+            agent/package-lock.json
 
       # Stdlib-only (node:test) — needs no npm install, no docker stack.
       # Runs first so unit failures fail fast before the stack boots.
@@ -48,6 +50,18 @@ jobs:
       - name: Install Chromium for Playwright
         working-directory: ./tests
         run: npx playwright install --with-deps chromium
+
+      # The compose file mounts ./agent over /opt/agent, hiding the
+      # image-baked node_modules — without seeding them here the entrypoint
+      # cold-installs from the registry inside the container, racing the
+      # 5-minute readiness budget below (the old flake). The .lock-hash stamp
+      # makes the entrypoint skip its install, and mid-suite container
+      # restarts (migrate.spec) stay instant.
+      - name: Install agent dependencies (compose mounts ./agent)
+        working-directory: ./agent
+        run: |
+          npm ci --omit=dev
+          sha256sum package-lock.json | cut -d' ' -f1 > node_modules/.lock-hash
 
       - name: Bring up the stack
         run: docker compose up -d --build
