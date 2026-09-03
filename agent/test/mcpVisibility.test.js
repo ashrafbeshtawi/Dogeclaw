@@ -3,7 +3,7 @@
 // visible to nobody.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { visibleEntries, mcpGroups } from '../src/lib/mcpVisibility.js';
+import { filterVisibleEntries, groupEntriesByServer } from '../src/lib/mcpVisibility.js';
 
 const def = name => ({ type: 'function', function: { name, description: 'd', parameters: { type: 'object', properties: {} } } });
 const entries = [
@@ -14,17 +14,17 @@ const entries = [
 ];
 
 test('built-in tools are always visible; MCP tools only for assigned servers', () => {
-  const names = visibleEntries(entries, ['jira']).map(e => e.name);
+  const names = filterVisibleEntries(entries, ['jira']).map(e => e.name);
   assert.deepEqual(names, ['read_skill', 'mcp_jira_search', 'mcp_jira_create']);
 });
 
 test('no assigned servers hides every MCP tool', () => {
-  assert.deepEqual(visibleEntries(entries, []).map(e => e.name), ['read_skill']);
-  assert.deepEqual(visibleEntries(entries, null).map(e => e.name), ['read_skill']);
+  assert.deepEqual(filterVisibleEntries(entries, []).map(e => e.name), ['read_skill']);
+  assert.deepEqual(filterVisibleEntries(entries, null).map(e => e.name), ['read_skill']);
 });
 
-test('mcpGroups groups tools by server with its description', () => {
-  const groups = mcpGroups(entries);
+test('groupEntriesByServer groups tools by server with its description', () => {
+  const groups = groupEntriesByServer(entries);
   assert.equal(groups.length, 2);
   assert.equal(groups[0].name, 'jira');
   assert.equal(groups[0].description, 'issue tracker');
@@ -32,6 +32,6 @@ test('mcpGroups groups tools by server with its description', () => {
   assert.equal(groups[1].name, 'github');
 });
 
-test('mcpGroups ignores built-in tools', () => {
-  assert.deepEqual(mcpGroups([entries[0]]), []);
+test('groupEntriesByServer ignores built-in tools', () => {
+  assert.deepEqual(groupEntriesByServer([entries[0]]), []);
 });
