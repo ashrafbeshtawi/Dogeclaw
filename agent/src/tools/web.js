@@ -1,68 +1,11 @@
-import * as cheerio from 'cheerio';
 import { fetchPage } from '../lib/fetchPage.js';
 import { getSetting } from '../db/settings.js';
-
-function extractText(html, selector) {
-  const $ = cheerio.load(html);
-  $('script, style, nav, footer, header, iframe, noscript, svg').remove();
-
-  if (selector) {
-    const el = $(selector);
-    return el.text().replace(/\s+/g, ' ').trim();
-  }
-
-  const content = $('article, main, [role="main"], .content, .post-content, .entry-content').first();
-  const text = (content.length ? content : $('body')).text().replace(/\s+/g, ' ').trim();
-  return text;
-}
-
-function extractLinks(html, baseUrl) {
-  const $ = cheerio.load(html);
-  const links = [];
-  const seen = new Set();
-  $('a[href]').each((_, el) => {
-    try {
-      const href = new URL($(el).attr('href'), baseUrl).href;
-      if (!seen.has(href) && href.startsWith('http')) {
-        seen.add(href);
-        const label = $(el).text().replace(/\s+/g, ' ').trim().slice(0, 80);
-        links.push({ url: href, text: label || href });
-      }
-    } catch {}
-  });
-  return links;
-}
+import { extractText, extractLinks, parseDdgResults, mapGoogleResults } from '../lib/webExtract.js';
 
 async function searchDDG(query, limit = 8) {
   const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
   const { html } = await fetchPage(url);
-  const $ = cheerio.load(html);
-  const results = [];
-
-  // :not(.result--ad) — DDG mixes ads into the same result markup.
-  $('div.result:not(.result--ad)').each((i, el) => {
-    if (results.length >= limit) return false;
-    const title = $(el).find('a.result__a').text().trim();
-    const href = $(el).find('a.result__a').attr('href');
-    const snippet = $(el).find('.result__snippet').text().trim();
-    if (title && href) {
-      let realUrl = href;
-      try {
-        const parsed = new URL(href, 'https://duckduckgo.com');
-        realUrl = parsed.searchParams.get('uddg') || href;
-      } catch {}
-      results.push({ title, url: realUrl, snippet: snippet.slice(0, 200) });
-    }
-  });
-
-  // Zero parsed results is ambiguous: a genuinely empty query, or DDG's
-  // bot-check page. Reporting the block as "no results found" makes the
-  // agent state a falsehood — surface it as an error instead.
-  if (!results.length && /anomaly|unusual traffic|challenge|captcha|bots use DuckDuckGo/i.test(html)) {
-    throw new Error('DuckDuckGo blocked or rate-limited this search — results are unavailable right now');
-  }
-
-  return results;
+  return parseDdgResults(html, limit);
 }
 
 // Google Custom Search JSON API. num caps at 10 per request — good enough
@@ -76,11 +19,7 @@ async function searchGoogle(query, limit, { apiKey, cx }) {
   if (!res.ok) {
     throw new Error(`Google search failed (${res.status}): ${body.error?.message || 'unknown error'}`);
   }
-  return (body.items || []).map(item => ({
-    title: item.title,
-    url: item.link,
-    snippet: (item.snippet || '').slice(0, 200),
-  }));
+  return mapGoogleResults(body);
 }
 
 // Provider dispatch: Google when credentials are configured in settings

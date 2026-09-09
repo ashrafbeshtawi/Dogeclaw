@@ -63,6 +63,12 @@ jobs:
           npm ci --omit=dev
           sha256sum package-lock.json | cut -d' ' -f1 > node_modules/.lock-hash
 
+      # These tests need cheerio, so they skip in the no-install unit stage
+      # above and run for real here, after the agent's npm ci.
+      - name: Parsing tests (agent, needs deps)
+        working-directory: ./agent
+        run: node --test test/webExtract.test.js
+
       - name: Bring up the stack
         run: docker compose up -d --build
 
