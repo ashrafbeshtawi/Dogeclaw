@@ -1,7 +1,7 @@
-// HTML/JSON parsing for the web tools — the fragile half of web.js, split
+// HTML extraction for the web tools — the fragile half of web.js, split
 // out so it can be tested against fixtures without any network. Needs
 // cheerio; CI installs the agent deps before running the unit tests
-// (see publish.yml).
+// (see publish.yml). Search-provider parsing lives in lib/searchProviders.js.
 
 import * as cheerio from 'cheerio';
 
@@ -36,44 +36,4 @@ export function extractLinks(html, baseUrl) {
     } catch {}
   });
   return links;
-}
-
-// Parse DDG's html.duckduckgo.com results page.
-export function parseDdgResults(html, limit = 8) {
-  const $ = cheerio.load(html);
-  const results = [];
-
-  // :not(.result--ad) — DDG mixes ads into the same result markup.
-  $('div.result:not(.result--ad)').each((i, el) => {
-    if (results.length >= limit) return false;
-    const title = $(el).find('a.result__a').text().trim();
-    const href = $(el).find('a.result__a').attr('href');
-    const snippet = $(el).find('.result__snippet').text().trim();
-    if (title && href) {
-      let realUrl = href;
-      try {
-        const parsed = new URL(href, 'https://duckduckgo.com');
-        realUrl = parsed.searchParams.get('uddg') || href;
-      } catch {}
-      results.push({ title, url: realUrl, snippet: snippet.slice(0, 200) });
-    }
-  });
-
-  // Zero parsed results is ambiguous: a genuinely empty query, or DDG's
-  // bot-check page. Reporting the block as "no results found" makes the
-  // agent state a falsehood — surface it as an error instead.
-  if (!results.length && /anomaly|unusual traffic|challenge|captcha|bots use DuckDuckGo/i.test(html)) {
-    throw new Error('DuckDuckGo blocked or rate-limited this search — results are unavailable right now');
-  }
-
-  return results;
-}
-
-// Map a Google Custom Search JSON API response body to search results.
-export function mapGoogleResults(body) {
-  return (body.items || []).map(item => ({
-    title: item.title,
-    url: item.link,
-    snippet: (item.snippet || '').slice(0, 200),
-  }));
 }

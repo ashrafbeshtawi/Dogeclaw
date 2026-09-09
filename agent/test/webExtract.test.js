@@ -1,6 +1,7 @@
-// Fixture tests for the web tools' parsing (src/lib/webExtract.js) — the
-// fragile half of the web tools. Needs cheerio, so CI installs the agent's
-// deps before the unit-test step (see publish.yml).
+// Fixture tests for the web tools' HTML extraction (src/lib/webExtract.js).
+// Needs cheerio, so CI installs the agent's deps before the unit-test step
+// (see publish.yml). Search-provider parsing is covered in
+// searchProviders.test.js.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as ex from '../src/lib/webExtract.js';
@@ -47,46 +48,4 @@ test('links inside nav/header/footer stay available via extractLinks', () => {
     ex.extractLinks(html, 'https://site.example/').map(l => l.url),
     ['https://site.example/about', 'https://site.example/home', 'https://site.example/story', 'https://site.example/imprint'],
   );
-});
-
-const ddgResult = (title, uddg, snippet, extra = '') => `
-  <div class="result ${extra}">
-    <a class="result__a" href="//duckduckgo.com/l/?uddg=${encodeURIComponent(uddg)}">${title}</a>
-    <a class="result__snippet">${snippet}</a>
-  </div>`;
-
-test('parseDdgResults decodes redirect URLs and excludes ads', () => {
-  const html = `<body>
-    ${ddgResult('Ad!', 'https://ads.example/', 'buy now', 'result--ad')}
-    ${ddgResult('Real', 'https://real.example/page', 'a snippet')}
-  </body>`;
-  const results = ex.parseDdgResults(html, 8);
-  assert.equal(results.length, 1);
-  assert.deepEqual(results[0], { title: 'Real', url: 'https://real.example/page', snippet: 'a snippet' });
-});
-
-test('parseDdgResults respects the limit', () => {
-  const html = [1, 2, 3].map(i => ddgResult(`R${i}`, `https://e.example/${i}`, 's')).join('');
-  assert.equal(ex.parseDdgResults(html, 2).length, 2);
-});
-
-test('parseDdgResults surfaces the bot-check page as an error, not empty', () => {
-  const blocked = '<body><div class="anomaly-modal">unusual traffic detected</div></body>';
-  assert.throws(() => ex.parseDdgResults(blocked), /blocked or rate-limited/);
-});
-
-test('parseDdgResults returns [] for a genuinely empty results page', () => {
-  assert.deepEqual(ex.parseDdgResults('<body><div class="no-results">nothing</div></body>'), []);
-});
-
-test('mapGoogleResults maps items and tolerates missing fields', () => {
-  const body = { items: [
-    { title: 'T', link: 'https://x.example/', snippet: 'S' },
-    { title: 'NoSnippet', link: 'https://y.example/' },
-  ] };
-  assert.deepEqual(ex.mapGoogleResults(body), [
-    { title: 'T', url: 'https://x.example/', snippet: 'S' },
-    { title: 'NoSnippet', url: 'https://y.example/', snippet: '' },
-  ]);
-  assert.deepEqual(ex.mapGoogleResults({}), []);
 });

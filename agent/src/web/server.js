@@ -26,6 +26,13 @@ import {
   deleteServer as deleteMcpServer,
   setServerAgents as setMcpServerAgents,
 } from '../db/mcpServers.js';
+import {
+  listEngines as listSearchEngines,
+  createEngine as createSearchEngine,
+  updateEngine as updateSearchEngine,
+  deleteEngine as deleteSearchEngine,
+  reorderEngines as reorderSearchEngines,
+} from '../db/searchEngines.js';
 import { BOT_COMMANDS } from '../channels/telegram.js';
 import { getAllSettings, setSetting } from '../db/settings.js';
 import {
@@ -711,6 +718,61 @@ export function createWebServer(agent) {
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
+  });
+
+  // --- Search engines CRUD ---
+  // Providers for the web search tools, tried in priority order with
+  // failover. No reload hook needed: agent.js checks per run whether an
+  // enabled engine exists and hides the search tools otherwise.
+  const searchEngineFieldsFromBody = (body) => {
+    const { provider, api_key, cx, enabled } = body;
+    if (!['google', 'brave'].includes(provider)) {
+      return { error: 'provider must be google or brave' };
+    }
+    if (!api_key) return { error: 'api_key required' };
+    if (provider === 'google' && !cx) {
+      return { error: 'cx (Programmable Search Engine ID) required for google' };
+    }
+    return {
+      fields: {
+        provider,
+        apiKey: api_key,
+        cx: provider === 'google' ? cx : null,
+        enabled: enabled ?? true,
+      },
+    };
+  };
+
+  app.get('/api/search-engines', authMiddleware, async (req, res) => {
+    res.json({ engines: await listSearchEngines() });
+  });
+
+  app.post('/api/search-engines', authMiddleware, async (req, res) => {
+    const { error, fields } = searchEngineFieldsFromBody(req.body);
+    if (error) return res.status(400).json({ error });
+    res.json(await createSearchEngine(fields));
+  });
+
+  // Registered before /:id so "order" isn't swallowed as an id.
+  app.put('/api/search-engines/order', authMiddleware, async (req, res) => {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: 'ids array required' });
+    await reorderSearchEngines(ids);
+    res.json({ ok: true });
+  });
+
+  app.put('/api/search-engines/:id', authMiddleware, async (req, res) => {
+    const { error, fields } = searchEngineFieldsFromBody(req.body);
+    if (error) return res.status(400).json({ error });
+    const engine = await updateSearchEngine(req.params.id, fields);
+    if (!engine) return res.status(404).json({ error: 'not found' });
+    res.json(engine);
+  });
+
+  app.delete('/api/search-engines/:id', authMiddleware, async (req, res) => {
+    const ok = await deleteSearchEngine(req.params.id);
+    if (!ok) return res.status(404).json({ error: 'not found' });
+    res.json({ ok: true });
   });
 
   // --- Settings ---

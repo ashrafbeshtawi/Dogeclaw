@@ -7,7 +7,9 @@ import { toolIcons, appendToolIcons, toolTrace } from './lib/toolIcons.js';
 import { claimsAction, CLAIM_NUDGE } from './lib/claimGuard.js';
 import { composeSystemPrompt, formatToolLine } from './lib/systemPrompt.js';
 import { filterVisibleEntries, groupEntriesByServer } from './lib/mcpVisibility.js';
+import { hideSearchTools } from './lib/searchProviders.js';
 import { getAgentMcpServerNames } from './db/mcpServers.js';
+import { hasActiveSearchEngine } from './db/searchEngines.js';
 import { getTimezone } from './db/settings.js';
 
 const MAX_ITERATIONS = 30;
@@ -25,7 +27,12 @@ export class Agent {
   // connected servers — so the DB answers "which servers", the registry
   // supplies their tools. An unassigned server is visible to no agent.
   async #loadVisibleToolEntries(agentId) {
-    const entries = this.#registry.getEntries();
+    let entries = this.#registry.getEntries();
+    // Search tools only exist while at least one enabled search engine is
+    // configured (admin UI -> Search tab); without one, only web_fetch stays.
+    if (entries.some(e => e.meta?.requiresSearchEngine)) {
+      entries = hideSearchTools(entries, await hasActiveSearchEngine());
+    }
     if (!entries.some(e => e.meta?.mcpServer)) return entries;
     const allowedServers = agentId ? await getAgentMcpServerNames(agentId) : [];
     return filterVisibleEntries(entries, allowedServers);
