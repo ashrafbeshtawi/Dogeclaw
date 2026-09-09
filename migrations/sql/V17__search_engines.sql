@@ -23,5 +23,9 @@ CREATE TABLE IF NOT EXISTS search_engines (
   priority    INTEGER      NOT NULL DEFAULT 0,
   created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
   updated_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+  -- Deliberate duplication of the provider list: the JS source of truth is
+  -- the PROVIDERS map in lib/searchProviders.js (API validation and the UI
+  -- select derive from it); this CHECK is schema-level defense-in-depth.
+  -- Adding a provider requires a migration to extend it.
   CONSTRAINT search_engines_google_cx_chk CHECK (provider <> 'google' OR cx IS NOT NULL)
 );

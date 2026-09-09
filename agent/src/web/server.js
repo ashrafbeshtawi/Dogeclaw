@@ -33,6 +33,7 @@ import {
   deleteEngine as deleteSearchEngine,
   reorderEngines as reorderSearchEngines,
 } from '../db/searchEngines.js';
+import { PROVIDERS as SEARCH_PROVIDERS } from '../lib/searchProviders.js';
 import { BOT_COMMANDS } from '../channels/telegram.js';
 import { getAllSettings, setSetting } from '../db/settings.js';
 import {
@@ -726,8 +727,10 @@ export function createWebServer(agent) {
   // enabled engine exists and hides the search tools otherwise.
   const searchEngineFieldsFromBody = (body) => {
     const { provider, api_key, cx, enabled } = body;
-    if (!['google', 'brave'].includes(provider)) {
-      return { error: 'provider must be google or brave' };
+    // The PROVIDERS map in lib/searchProviders.js is the single source of
+    // truth for supported providers — the UI select is rendered from it too.
+    if (!(provider in SEARCH_PROVIDERS)) {
+      return { error: `provider must be one of: ${Object.keys(SEARCH_PROVIDERS).join(', ')}` };
     }
     if (!api_key) return { error: 'api_key required' };
     if (provider === 'google' && !cx) {
@@ -744,7 +747,10 @@ export function createWebServer(agent) {
   };
 
   app.get('/api/search-engines', authMiddleware, async (req, res) => {
-    res.json({ engines: await listSearchEngines() });
+    res.json({
+      engines: await listSearchEngines(),
+      providers: Object.keys(SEARCH_PROVIDERS),
+    });
   });
 
   app.post('/api/search-engines', authMiddleware, async (req, res) => {

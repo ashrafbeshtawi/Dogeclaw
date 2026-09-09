@@ -400,10 +400,10 @@
             <h3 id="searchEngineModalTitle">New Search Engine</h3>
             <input type="hidden" id="searchEngineId">
             <label>Provider</label>
-            <select id="searchEngineProvider" onchange="onSearchProviderChange()">
-                <option value="google">Google (Custom Search API)</option>
-                <option value="brave">Brave Search API</option>
-            </select>
+            <!-- Options are rendered from GET /api/search-engines' providers
+                 field — the PROVIDERS map in lib/searchProviders.js is the
+                 single source of truth. -->
+            <select id="searchEngineProvider" onchange="onSearchProviderChange()"></select>
             <label>API key</label>
             <input type="text" id="searchEngineKey" placeholder="API key">
             <div id="searchEngineCxField">
@@ -433,7 +433,7 @@
     <script>
         var models = [], agents = [], channels = [], skills = [], siteConfig = {}, crons = [], sessions = [], settings = {};
         var events = [];
-        var mcpServers = [], searchEngines = [];
+        var mcpServers = [], searchEngines = [], searchProviders = [];
 
         var TIMEZONES = (typeof Intl !== 'undefined' && Intl.supportedValuesOf)
             ? Intl.supportedValuesOf('timeZone')
@@ -485,6 +485,7 @@
             crons = r[5].jobs || []; sessions = r[6].sessions || []; settings = r[7] || {};
             mcpServers = r[8].servers || [];
             searchEngines = r[9].engines || [];
+            searchProviders = r[9].providers || [];
             renderModels(); renderAgents(); renderSkills(); renderChannels(); renderMcp(); renderSearchEngines(); renderCrons(); renderSettings();
             var mh = document.getElementById('telegramModeHint');
             mh.innerHTML = siteConfig.telegramMode === 'webhook' && siteConfig.webhookUrl
@@ -657,7 +658,10 @@
             if (typeof e === 'number') e = find(searchEngines, e);
             document.getElementById('searchEngineModalTitle').textContent = e ? 'Edit Search Engine' : 'New Search Engine';
             document.getElementById('searchEngineId').value = e ? e.id : '';
-            document.getElementById('searchEngineProvider').value = e ? e.provider : 'google';
+            document.getElementById('searchEngineProvider').innerHTML = searchProviders.map(function(p) {
+                return '<option value="'+esc(p)+'">'+esc(p)+'</option>';
+            }).join('');
+            document.getElementById('searchEngineProvider').value = e ? e.provider : searchProviders[0];
             document.getElementById('searchEngineKey').value = e ? e.api_key : '';
             document.getElementById('searchEngineCx').value = e ? (e.cx || '') : '';
             document.getElementById('searchEngineEnabled').checked = e ? e.enabled : true;

@@ -52,8 +52,13 @@ export const PROVIDERS = { google: searchGoogle, brave: searchBrave };
 // engine failed (or none exist — callers gate tool visibility on that, so
 // reaching this empty is a bug worth surfacing).
 export async function runSearchWithFailover(engines, query, limit, providers = PROVIDERS) {
+  // Own the ordering promised above instead of trusting the caller's array
+  // order (rows without a priority sort as 0 — provider fakes in tests).
+  const ordered = [...engines].sort(
+    (a, b) => ((a.priority ?? 0) - (b.priority ?? 0)) || ((a.id ?? 0) - (b.id ?? 0)),
+  );
   const errors = [];
-  for (const engine of engines) {
+  for (const engine of ordered) {
     const provider = providers[engine.provider];
     if (!provider) {
       errors.push(`${engine.provider}: unknown provider`);

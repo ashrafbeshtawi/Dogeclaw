@@ -28,6 +28,8 @@ test.describe('search engines', () => {
     try {
       const list = await (await request.get('/api/search-engines')).json();
       expect(list.engines.some(e => e.id === engine.id)).toBeTruthy();
+      // The UI renders the provider select from this — single source of truth.
+      expect(list.providers).toEqual(['google', 'brave']);
 
       const updated = await request.put(`/api/search-engines/${engine.id}`, {
         data: { provider: 'brave', api_key: 'pw-brave-key-2', enabled: false },

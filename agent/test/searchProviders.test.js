@@ -82,6 +82,15 @@ test('failover: first engine in priority order answers', async () => {
   assert.deepEqual(await runSearchWithFailover(engines, 'q', 5, providers), [{ title: 'b' }]);
 });
 
+test('failover: enforces priority order itself, not the caller\'s array order', async () => {
+  const providers = { google: okProvider([{ title: 'g' }]), brave: okProvider([{ title: 'b' }]) };
+  const engines = [
+    { provider: 'brave', priority: 5, id: 1 },
+    { provider: 'google', priority: 0, id: 2 },
+  ];
+  assert.deepEqual(await runSearchWithFailover(engines, 'q', 5, providers), [{ title: 'g' }]);
+});
+
 test('failover: a failing engine hands over to the next', async () => {
   const providers = { google: failProvider('quota'), brave: okProvider([{ title: 'b' }]) };
   const engines = [{ provider: 'google' }, { provider: 'brave' }];
