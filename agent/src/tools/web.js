@@ -78,54 +78,39 @@ export function register(registry) {
   });
 
   // --- web_fetch ---
+  // One page per call, no crawling: the agent itself is the crawler with
+  // judgment — it sees the page's links and follows the relevant one with
+  // another web_fetch, instead of this tool blindly fetching the first N
+  // links (nav, footer, privacy policy...). agent.js truncates every tool
+  // result at 12000 chars of JSON; 8000 text + up to 30 links fits.
+  const TEXT_BUDGET = 8000;
+
   registry.register('web_fetch', {
     type: 'function',
     function: {
       name: 'web_fetch',
-      description: 'Fetch a URL and extract its text content. Optionally follow links to crawl multiple pages. Use this to read articles, documentation, API responses, or any webpage. Examples: fetch "https://example.com" to read it, fetch with depth=1 to also follow links on the page.',
+      description: 'Fetch a URL and extract its text content and the links on the page. Use this to read articles, documentation, API responses, or any webpage. To follow a link, call web_fetch again with that URL — every fetched page lists its links.',
       parameters: {
         type: 'object',
         properties: {
           url: { type: 'string', description: 'URL to fetch' },
           selector: { type: 'string', description: 'CSS selector to extract specific content (optional)' },
-          depth: { type: 'number', description: 'How many levels of links to follow (0-2). Default 0.' },
-          max_pages: { type: 'number', description: 'Max total pages when depth > 0 (default 5, max 15)' },
         },
         required: ['url'],
       },
     },
-  }, async ({ url, selector, depth, max_pages }) => {
-    const maxDepth = Math.min(depth || 0, 2);
-    const maxPages = Math.min(max_pages || 5, 15);
-    const visited = new Set();
-    const pages = [];
-
-    async function crawl(pageUrl, currentDepth) {
-      if (visited.has(pageUrl) || pages.length >= maxPages) return;
-      visited.add(pageUrl);
-
-      try {
-        const { html, status, url: finalUrl } = await fetchPage(pageUrl);
-        const text = extractText(html, selector);
-        const page = { url: finalUrl, status, text: text.slice(0, 8000) };
-
-        if (currentDepth < maxDepth) {
-          const links = extractLinks(html, finalUrl);
-          page.links = links.slice(0, 30);
-          for (const link of links) {
-            if (pages.length >= maxPages) break;
-            await crawl(link.url, currentDepth + 1);
-          }
-        }
-
-        pages.push(page);
-      } catch (err) {
-        pages.push({ url: pageUrl, error: err.message });
-      }
+  }, async ({ url, selector }) => {
+    try {
+      const { html, status, url: finalUrl } = await fetchPage(url);
+      return {
+        url: finalUrl,
+        status,
+        text: extractText(html, selector).slice(0, TEXT_BUDGET),
+        links: extractLinks(html, finalUrl).slice(0, 30),
+      };
+    } catch (err) {
+      return { url, error: err.message };
     }
-
-    await crawl(url, 0);
-    return { pages };
   });
 
   // --- web_research ---
