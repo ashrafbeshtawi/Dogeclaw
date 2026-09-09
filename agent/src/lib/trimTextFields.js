@@ -5,7 +5,7 @@
 // rows or specific columns to see more.
 //
 // ponytail: flat cap per string value; make it column-aware if a table ever
-// needs full long values back through db_select.
+// needs full long values back through db_run_sql.
 
 const TEXT_FIELD_MAX = 500;
 
