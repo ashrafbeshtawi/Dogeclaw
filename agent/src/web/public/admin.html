@@ -152,10 +152,18 @@
                             <td><input type="number" id="settingEventRetention" min="1" step="1" class="input input-sm w-28"></td>
                             <td><button class="btn btn-primary btn-xs" onclick="saveEventRetention()">Save</button></td>
                         </tr>
+                        <tr>
+                            <td><strong>Google search</strong></td>
+                            <td>
+                                <input type="text" id="settingGoogleKey" placeholder="API key" class="input input-sm w-72">
+                                <input type="text" id="settingGoogleCx" placeholder="Search Engine ID (cx)" class="input input-sm w-44">
+                            </td>
+                            <td><button class="btn btn-primary btn-xs" onclick="saveGoogleSearch()">Save</button></td>
+                        </tr>
                     </tbody>
                 </table>
             </div>
-            <div class="hint">Timezone is the default for new cron jobs. Event log retention controls how long cron-run and audio-transcription logs are kept before the daily cleanup tick deletes them.</div>
+            <div class="hint">Timezone is the default for new cron jobs. Event log retention controls how long cron-run and audio-transcription logs are kept before the daily cleanup tick deletes them. Google search: with an API key + Programmable Search Engine ID the web tools search via Google's Custom Search API (100 free queries/day); leave empty to use the keyless DuckDuckGo fallback.</div>
         </div>
     </div>
 
@@ -838,6 +846,16 @@
             var retention = settings.event_log_retention_days;
             document.getElementById('settingEventRetention').value = (retention == null ? 14 : retention);
             document.getElementById('eventsRetentionLabel').textContent = (retention == null ? 14 : retention);
+            document.getElementById('settingGoogleKey').value = settings.google_search_api_key || '';
+            document.getElementById('settingGoogleCx').value = settings.google_search_cx || '';
+        }
+
+        async function saveGoogleSearch() {
+            var key = document.getElementById('settingGoogleKey').value.trim();
+            var cx = document.getElementById('settingGoogleCx').value.trim();
+            await api('PUT', '/api/settings/google_search_api_key', { value: key });
+            await api('PUT', '/api/settings/google_search_cx', { value: cx });
+            await load();
         }
 
         async function saveEventRetention() {

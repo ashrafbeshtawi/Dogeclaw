@@ -34,6 +34,30 @@ test.describe('settings tab', () => {
     }
   });
 
+  test('google search credentials save from the UI and round-trip', async ({ page, request }) => {
+    const before = await (await request.get('/api/settings')).json();
+
+    try {
+      await openAdminTab(page, 'settings');
+      await page.fill('#settingGoogleKey', 'pw-test-key');
+      await page.fill('#settingGoogleCx', 'pw-test-cx');
+      await page.locator('tr', { hasText: 'Google search' }).locator('button:has-text("Save")').click();
+
+      await expect.poll(async () => {
+        const s = await (await request.get('/api/settings')).json();
+        return `${s.google_search_api_key}/${s.google_search_cx}`;
+      }).toBe('pw-test-key/pw-test-cx');
+
+      // Rendered back into the inputs after reload
+      await page.reload();
+      await openAdminTab(page, 'settings');
+      await expect(page.locator('#settingGoogleKey')).toHaveValue('pw-test-key');
+    } finally {
+      await request.put('/api/settings/google_search_api_key', { data: { value: before.google_search_api_key || '' } });
+      await request.put('/api/settings/google_search_cx', { data: { value: before.google_search_cx || '' } });
+    }
+  });
+
   test('new cron modal defaults its timezone to the global setting', async ({ page, request }) => {
     // Ensure a known global value
     await request.put('/api/settings/timezone', { data: { value: 'Europe/Berlin' } });

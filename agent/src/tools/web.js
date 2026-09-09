@@ -1,5 +1,6 @@
 import * as cheerio from 'cheerio';
 import { fetchPage } from '../lib/fetchPage.js';
+import { getSetting } from '../db/settings.js';
 
 function extractText(html, selector) {
   const $ = cheerio.load(html);
@@ -38,7 +39,8 @@ async function searchDDG(query, limit = 8) {
   const $ = cheerio.load(html);
   const results = [];
 
-  $('div.result').each((i, el) => {
+  // :not(.result--ad) — DDG mixes ads into the same result markup.
+  $('div.result:not(.result--ad)').each((i, el) => {
     if (results.length >= limit) return false;
     const title = $(el).find('a.result__a').text().trim();
     const href = $(el).find('a.result__a').attr('href');
@@ -53,7 +55,50 @@ async function searchDDG(query, limit = 8) {
     }
   });
 
+  // Zero parsed results is ambiguous: a genuinely empty query, or DDG's
+  // bot-check page. Reporting the block as "no results found" makes the
+  // agent state a falsehood — surface it as an error instead.
+  if (!results.length && /anomaly|unusual traffic|challenge|captcha|bots use DuckDuckGo/i.test(html)) {
+    throw new Error('DuckDuckGo blocked or rate-limited this search — results are unavailable right now');
+  }
+
   return results;
+}
+
+// Google Custom Search JSON API. num caps at 10 per request — good enough
+// for the callers (web_research visits at most 5+3 pages).
+async function searchGoogle(query, limit, { apiKey, cx }) {
+  const url = 'https://www.googleapis.com/customsearch/v1'
+    + `?key=${encodeURIComponent(apiKey)}&cx=${encodeURIComponent(cx)}`
+    + `&q=${encodeURIComponent(query)}&num=${Math.min(limit, 10)}`;
+  const res = await fetch(url);
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(`Google search failed (${res.status}): ${body.error?.message || 'unknown error'}`);
+  }
+  return (body.items || []).map(item => ({
+    title: item.title,
+    url: item.link,
+    snippet: (item.snippet || '').slice(0, 200),
+  }));
+}
+
+// Provider dispatch: Google when credentials are configured in settings
+// (admin UI → Settings), DDG scrape as keyless fallback — also when Google
+// errors (e.g. daily quota), so search degrades instead of dying.
+async function runSearch(query, limit) {
+  const [apiKey, cx] = await Promise.all([
+    getSetting('google_search_api_key'),
+    getSetting('google_search_cx'),
+  ]);
+  if (apiKey && cx) {
+    try {
+      return await searchGoogle(query, limit, { apiKey, cx });
+    } catch (err) {
+      console.error('[web] Google search failed, falling back to DDG:', err.message);
+    }
+  }
+  return searchDDG(query, limit);
 }
 
 export function register(registry) {
@@ -62,7 +107,7 @@ export function register(registry) {
     type: 'function',
     function: {
       name: 'web_search',
-      description: 'Search the web using DuckDuckGo and return results with titles, URLs, and snippets. Use this to find information, lookup facts, find documentation, etc. Examples: "javascript fetch API", "weather Berlin", "latest news on AI".',
+      description: 'Search the web and return results with titles, URLs, and snippets. Use this to find information, lookup facts, find documentation, etc. Examples: "javascript fetch API", "weather Berlin", "latest news on AI".',
       parameters: {
         type: 'object',
         properties: {
@@ -73,7 +118,7 @@ export function register(registry) {
       },
     },
   }, async ({ query, max_results }) => {
-    const results = await searchDDG(query, Math.min(max_results || 8, 20));
+    const results = await runSearch(query, Math.min(max_results || 8, 20));
     return { query, results };
   });
 
@@ -131,8 +176,12 @@ export function register(registry) {
   }, async ({ query, num_sites }) => {
     const sitesToVisit = Math.min(num_sites || 3, 5);
 
-    // Step 1: Search
-    const searchResults = await searchDDG(query, sitesToVisit + 4);
+    // Step 1: Search. The +4 (and the +3 below) is deliberate redundancy,
+    // not a bug: some pages always fail (blocked, timeout, non-text), and
+    // over-fetching in parallel keeps the report at sitesToVisit sources
+    // without a serial re-fetch round. Results are still capped at
+    // sitesToVisit — see the idx break in the report loop.
+    const searchResults = await runSearch(query, sitesToVisit + 4);
     if (!searchResults.length) return { query, sources: [], content: '(no search results found)' };
 
     // Step 2: Fetch top results in parallel
