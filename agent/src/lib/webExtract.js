@@ -1,10 +1,12 @@
 // HTML/JSON parsing for the web tools — the fragile half of web.js, split
-// out so it can be tested against fixtures without any network. NOT
-// dependency-free (cheerio): the stdlib-only unit stage skips its tests;
-// CI runs them in the Playwright job after `npm ci` (see publish.yml).
+// out so it can be tested against fixtures without any network. Needs
+// cheerio; CI installs the agent deps before running the unit tests
+// (see publish.yml).
 
 import * as cheerio from 'cheerio';
 
+// nav/header/footer are stripped from the TEXT only — extractLinks reads the
+// raw html, so navigation links stay available to the agent.
 export function extractText(html, selector) {
   const $ = cheerio.load(html);
   $('script, style, nav, footer, header, iframe, noscript, svg').remove();
