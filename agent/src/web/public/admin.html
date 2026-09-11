@@ -20,6 +20,7 @@
         <button class="tab-button" data-tab="skills" onclick="showTab('skills')">Skills</button>
         <button class="tab-button" data-tab="channels" onclick="showTab('channels')">Channels</button>
         <button class="tab-button" data-tab="mcp" onclick="showTab('mcp')">MCP</button>
+        <button class="tab-button" data-tab="search" onclick="showTab('search')">Search</button>
         <button class="tab-button" data-tab="crons" onclick="showTab('crons')">Cron Jobs</button>
         <button class="tab-button" data-tab="events" onclick="showTab('events')">Events</button>
         <button class="tab-button" data-tab="settings" onclick="showTab('settings')">Settings</button>
@@ -99,6 +100,21 @@
             <div class="hint">Tools are exposed as <code>mcp_&lt;server&gt;_&lt;tool&gt;</code> — all of them, since MCP servers can change their tool set without notice. Only agents assigned to a server see its tools; a server with no agents is hidden from everyone. Changes reconnect immediately, no restart needed.</div>
         </div>
 
+        <!-- Search Engines -->
+        <div class="section" id="tab-search">
+            <div class="flex items-center gap-3 mb-4">
+                <h2 class="text-base font-bold">Search Engines</h2>
+                <button class="btn btn-primary btn-sm" onclick="openSearchEngineModal()">+ New Engine</button>
+            </div>
+            <div class="overflow-x-auto rounded-2xl border border-white/5 bg-base-100">
+                <table class="table table-sm">
+                    <thead><tr><th>Priority</th><th>Provider</th><th>Key</th><th>Enabled</th><th></th></tr></thead>
+                    <tbody id="searchEnginesTable"></tbody>
+                </table>
+            </div>
+            <div class="hint">Providers for the agent's <code>web_search</code>/<code>web_research</code> tools, tried top to bottom — when one fails the next takes over. With no enabled engine the search tools disappear from the agent entirely (only <code>web_fetch</code> stays). Google needs an API key + Programmable Search Engine ID (cx); Brave needs just an API key.</div>
+        </div>
+
         <!-- Cron Jobs -->
         <div class="section" id="tab-crons">
             <div class="flex items-center gap-3 mb-4">
@@ -152,18 +168,10 @@
                             <td><input type="number" id="settingEventRetention" min="1" step="1" class="input input-sm w-28"></td>
                             <td><button class="btn btn-primary btn-xs" onclick="saveEventRetention()">Save</button></td>
                         </tr>
-                        <tr>
-                            <td><strong>Google search</strong></td>
-                            <td>
-                                <input type="text" id="settingGoogleKey" placeholder="API key" class="input input-sm w-72">
-                                <input type="text" id="settingGoogleCx" placeholder="Search Engine ID (cx)" class="input input-sm w-44">
-                            </td>
-                            <td><button class="btn btn-primary btn-xs" onclick="saveGoogleSearch()">Save</button></td>
-                        </tr>
                     </tbody>
                 </table>
             </div>
-            <div class="hint">Timezone is the default for new cron jobs. Event log retention controls how long cron-run and audio-transcription logs are kept before the daily cleanup tick deletes them. Google search: with an API key + Programmable Search Engine ID the web tools search via Google's Custom Search API (100 free queries/day); leave empty to use the keyless DuckDuckGo fallback.</div>
+            <div class="hint">Timezone is the default for new cron jobs. Event log retention controls how long cron-run and audio-transcription logs are kept before the daily cleanup tick deletes them. Web search providers are configured on the Search tab.</div>
         </div>
     </div>
 
@@ -386,6 +394,30 @@
         </div>
     </div>
 
+    <!-- Search Engine Modal -->
+    <div class="modal-overlay" id="searchEngineModal">
+        <div class="modal">
+            <h3 id="searchEngineModalTitle">New Search Engine</h3>
+            <input type="hidden" id="searchEngineId">
+            <label>Provider</label>
+            <!-- Options are rendered from GET /api/search-engines' providers
+                 field — the PROVIDERS map in lib/searchProviders.js is the
+                 single source of truth. -->
+            <select id="searchEngineProvider" onchange="onSearchProviderChange()"></select>
+            <label>API key</label>
+            <input type="text" id="searchEngineKey" placeholder="API key">
+            <div id="searchEngineCxField">
+                <label>Search Engine ID (cx)</label>
+                <input type="text" id="searchEngineCx" placeholder="Programmable Search Engine ID">
+            </div>
+            <div class="dc-toggle"><input type="checkbox" class="toggle toggle-primary toggle-sm" id="searchEngineEnabled" checked><label for="searchEngineEnabled">Enabled</label></div>
+            <div class="btn-row">
+                <button class="btn btn-sm btn-ghost border border-white/10 btn-cancel" onclick="closeModal('searchEngineModal')">Cancel</button>
+                <button class="btn btn-sm btn-primary btn-save" onclick="saveSearchEngine()">Save</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Event detail Modal -->
     <div class="modal-overlay" id="eventModal">
         <div class="dc-modal max-w-[720px]">
@@ -401,7 +433,7 @@
     <script>
         var models = [], agents = [], channels = [], skills = [], siteConfig = {}, crons = [], sessions = [], settings = {};
         var events = [];
-        var mcpServers = [];
+        var mcpServers = [], searchEngines = [], searchProviders = [];
 
         var TIMEZONES = (typeof Intl !== 'undefined' && Intl.supportedValuesOf)
             ? Intl.supportedValuesOf('timeZone')
@@ -424,7 +456,7 @@
 
         function initialTab() {
             var fromHash = (window.location.hash || '').replace(/^#/, '');
-            var valid = ['models','agents','skills','channels','mcp','crons','events','settings'];
+            var valid = ['models','agents','skills','channels','mcp','search','crons','events','settings'];
             return valid.includes(fromHash) ? fromHash : 'models';
         }
 
@@ -447,11 +479,14 @@
                 api('GET','/api/sessions'),
                 api('GET','/api/settings'),
                 api('GET','/api/mcp'),
+                api('GET','/api/search-engines'),
             ]);
             models = r[0].models; agents = r[1].agents; channels = r[2].channels; skills = r[3].skills; siteConfig = r[4];
             crons = r[5].jobs || []; sessions = r[6].sessions || []; settings = r[7] || {};
             mcpServers = r[8].servers || [];
-            renderModels(); renderAgents(); renderSkills(); renderChannels(); renderMcp(); renderCrons(); renderSettings();
+            searchEngines = r[9].engines || [];
+            searchProviders = r[9].providers || [];
+            renderModels(); renderAgents(); renderSkills(); renderChannels(); renderMcp(); renderSearchEngines(); renderCrons(); renderSettings();
             var mh = document.getElementById('telegramModeHint');
             mh.innerHTML = siteConfig.telegramMode === 'webhook' && siteConfig.webhookUrl
                 ? 'Telegram mode: <strong>webhook</strong> &mdash; <code>' + esc(siteConfig.webhookUrl) + '</code>'
@@ -595,6 +630,74 @@
             var r = id ? await api('PUT', '/api/mcp/'+id, body) : await api('POST', '/api/mcp', body);
             if (r.error) { alert(r.error); return; }
             closeModal('mcpModal');
+            load();
+        }
+
+        // Search engine CRUD + priority sorting
+        function renderSearchEngines() {
+            document.getElementById('searchEnginesTable').innerHTML = searchEngines.map(function(e, i) {
+                var key = e.api_key.length > 8 ? e.api_key.slice(0, 4) + '…' + e.api_key.slice(-4) : e.api_key;
+                return '<tr><td>'
+                    +'<button '+(i === 0 ? 'disabled' : '')+' onclick="moveSearchEngine('+e.id+',-1)">↑</button> '
+                    +'<button '+(i === searchEngines.length - 1 ? 'disabled' : '')+' onclick="moveSearchEngine('+e.id+',1)">↓</button> '
+                    +(i + 1)+'</td>'
+                    +'<td><strong>'+esc(e.provider)+'</strong></td>'
+                    +'<td><code>'+esc(key)+'</code></td>'
+                    +'<td><span class="badge badge-sm '+(e.enabled?'badge-on':'badge-off')+'">'+(e.enabled?'on':'off')+'</span></td>'
+                    +'<td class="actions"><button onclick="editSearchEngine('+e.id+')">Edit</button>'
+                    +'<button class="danger" onclick="deleteSearchEngine('+e.id+')">Delete</button></td></tr>';
+            }).join('') || '<tr><td colspan="5" style="opacity:0.4;text-align:center;padding:1.5rem">No engines — the agent has no web search until one is added.</td></tr>';
+        }
+
+        function onSearchProviderChange() {
+            var google = document.getElementById('searchEngineProvider').value === 'google';
+            document.getElementById('searchEngineCxField').style.display = google ? 'block' : 'none';
+        }
+
+        function openSearchEngineModal(e) {
+            if (typeof e === 'number') e = find(searchEngines, e);
+            document.getElementById('searchEngineModalTitle').textContent = e ? 'Edit Search Engine' : 'New Search Engine';
+            document.getElementById('searchEngineId').value = e ? e.id : '';
+            document.getElementById('searchEngineProvider').innerHTML = searchProviders.map(function(p) {
+                return '<option value="'+esc(p)+'">'+esc(p)+'</option>';
+            }).join('');
+            document.getElementById('searchEngineProvider').value = e ? e.provider : searchProviders[0];
+            document.getElementById('searchEngineKey').value = e ? e.api_key : '';
+            document.getElementById('searchEngineCx').value = e ? (e.cx || '') : '';
+            document.getElementById('searchEngineEnabled').checked = e ? e.enabled : true;
+            onSearchProviderChange();
+            document.getElementById('searchEngineModal').classList.add('open');
+        }
+        function editSearchEngine(id){ openSearchEngineModal(id); }
+
+        async function saveSearchEngine() {
+            var id = document.getElementById('searchEngineId').value;
+            var body = {
+                provider: document.getElementById('searchEngineProvider').value,
+                api_key: document.getElementById('searchEngineKey').value.trim(),
+                cx: document.getElementById('searchEngineCx').value.trim() || null,
+                enabled: document.getElementById('searchEngineEnabled').checked,
+            };
+            var r = id ? await api('PUT', '/api/search-engines/'+id, body) : await api('POST', '/api/search-engines', body);
+            if (r.error) { alert(r.error); return; }
+            closeModal('searchEngineModal');
+            load();
+        }
+
+        // Simple priority sorting: swap with the neighbor, send the full order.
+        async function moveSearchEngine(id, dir) {
+            var ids = searchEngines.map(function(e){ return e.id; });
+            var i = ids.indexOf(id);
+            var j = i + dir;
+            if (j < 0 || j >= ids.length) return;
+            ids[i] = ids[j]; ids[j] = id;
+            await api('PUT', '/api/search-engines/order', { ids: ids });
+            load();
+        }
+
+        async function deleteSearchEngine(id) {
+            if (!confirm('Delete this search engine? If it is the last enabled one, the agent loses web search.')) return;
+            await api('DELETE', '/api/search-engines/'+id);
             load();
         }
 
@@ -846,16 +949,6 @@
             var retention = settings.event_log_retention_days;
             document.getElementById('settingEventRetention').value = (retention == null ? 14 : retention);
             document.getElementById('eventsRetentionLabel').textContent = (retention == null ? 14 : retention);
-            document.getElementById('settingGoogleKey').value = settings.google_search_api_key || '';
-            document.getElementById('settingGoogleCx').value = settings.google_search_cx || '';
-        }
-
-        async function saveGoogleSearch() {
-            var key = document.getElementById('settingGoogleKey').value.trim();
-            var cx = document.getElementById('settingGoogleCx').value.trim();
-            await api('PUT', '/api/settings/google_search_api_key', { value: key });
-            await api('PUT', '/api/settings/google_search_cx', { value: cx });
-            await load();
         }
 
         async function saveEventRetention() {

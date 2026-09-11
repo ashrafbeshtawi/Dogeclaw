@@ -1,44 +1,19 @@
 import { fetchPage } from '../lib/fetchPage.js';
-import { getSetting } from '../db/settings.js';
-import { extractText, extractLinks, parseDdgResults, mapGoogleResults } from '../lib/webExtract.js';
+import { extractText, extractLinks } from '../lib/webExtract.js';
+import { runSearchWithFailover } from '../lib/searchProviders.js';
+import { listActiveEngines } from '../db/searchEngines.js';
 
-async function searchDDG(query, limit = 8) {
-  const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
-  const { html } = await fetchPage(url);
-  return parseDdgResults(html, limit);
-}
-
-// Google Custom Search JSON API. num caps at 10 per request — good enough
-// for the callers (web_research visits at most 5+3 pages).
-async function searchGoogle(query, limit, { apiKey, cx }) {
-  const url = 'https://www.googleapis.com/customsearch/v1'
-    + `?key=${encodeURIComponent(apiKey)}&cx=${encodeURIComponent(cx)}`
-    + `&q=${encodeURIComponent(query)}&num=${Math.min(limit, 10)}`;
-  const res = await fetch(url);
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(`Google search failed (${res.status}): ${body.error?.message || 'unknown error'}`);
-  }
-  return mapGoogleResults(body);
-}
-
-// Provider dispatch: Google when credentials are configured in settings
-// (admin UI → Settings), DDG scrape as keyless fallback — also when Google
-// errors (e.g. daily quota), so search degrades instead of dying.
+// Engines come from the search_engines table (admin UI → Search tab),
+// tried in priority order with automatic failover. The registration meta
+// requiresSearchEngine makes agent.js hide the search tools entirely while
+// no enabled engine exists — so this only runs with at least one engine.
 async function runSearch(query, limit) {
-  const [apiKey, cx] = await Promise.all([
-    getSetting('google_search_api_key'),
-    getSetting('google_search_cx'),
-  ]);
-  if (apiKey && cx) {
-    try {
-      return await searchGoogle(query, limit, { apiKey, cx });
-    } catch (err) {
-      console.error('[web] Google search failed, falling back to DDG:', err.message);
-    }
-  }
-  return searchDDG(query, limit);
+  const engines = await listActiveEngines();
+  return runSearchWithFailover(engines, query, limit);
 }
+
+// Tools that need a configured search engine carry this meta.
+const NEEDS_SEARCH = { requiresSearchEngine: true };
 
 export function register(registry) {
   // --- web_search ---
@@ -59,7 +34,7 @@ export function register(registry) {
   }, async ({ query, max_results }) => {
     const results = await runSearch(query, Math.min(max_results || 8, 20));
     return { query, results };
-  });
+  }, NEEDS_SEARCH);
 
   // --- web_fetch ---
   // One page per call, no crawling: the agent itself is the crawler with
@@ -171,5 +146,5 @@ export function register(registry) {
       sources,
       content: parts.join('\n\n') || '(no content could be extracted)',
     };
-  });
+  }, NEEDS_SEARCH);
 }
