@@ -468,13 +468,9 @@ export function createWebServer(agent) {
       'INSERT INTO channels (agent_id, type, name, config, response_mode, response_interval) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
       [agent_id, type, name, JSON.stringify(channelConfig || {}), response_mode || 'immediate', response_interval],
     );
-    // Auto-set webhook for telegram channels in webhook mode
-    if (type === 'telegram' && config.telegram.mode === 'webhook' && config.telegram.webhookUrl && channelConfig?.token) {
-      const whUrl = `${config.telegram.webhookUrl}/webhook/${name}`;
-      fetch(`https://api.telegram.org/bot${channelConfig.token}/setWebhook?url=${encodeURIComponent(whUrl)}`)
-        .then(r => r.json()).then(d => console.log(`[telegram] Webhook set for ${name}:`, d.ok ? 'ok' : d.description))
-        .catch(e => console.error(`[telegram] Failed to set webhook for ${name}:`, e.message));
-    }
+    // The webhook (and its Express route) is registered by the telegram
+    // manager's #startBot during the reload below — the single place that
+    // owns it, so create/rename/token-change all behave the same.
     res.json(result.rows[0]);
     if (telegramManager) telegramManager.reload().catch(e => console.error('[telegram] reload failed:', e.message));
   });
