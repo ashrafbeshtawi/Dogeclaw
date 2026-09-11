@@ -51,7 +51,7 @@ export class Agent {
     }
   }
 
-  async #buildSystemPrompt(customPrompt, agentId, entries) {
+  async #buildSystemPrompt(customPrompt, agentId, entries, agentName) {
     const toolDescriptions = entries
       .filter(e => !e.meta?.mcpServer)
       .map(e => formatToolLine(e.definition))
@@ -59,6 +59,7 @@ export class Agent {
 
     return composeSystemPrompt({
       customPrompt,
+      agentName,
       workspace: config.paths.files,
       toolDescriptions,
       skillsBlock: await this.#buildSkillsBlock(agentId),
@@ -153,7 +154,7 @@ export class Agent {
     const chatId = opts.chatId ?? null;
     const sessionId = opts.sessionId ?? null;
     const entries = await this.#loadVisibleToolEntries(agentId);
-    const systemPrompt = await this.#buildSystemPrompt(opts.systemPrompt, agentId, entries);
+    const systemPrompt = await this.#buildSystemPrompt(opts.systemPrompt, agentId, entries, opts.agentName || null);
     const mc = opts.modelConfig || {};
     if (!mc.model_id) {
       throw new Error('No model configured. Add a model in the admin UI and assign it to this agent.');

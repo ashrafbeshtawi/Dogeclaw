@@ -34,6 +34,19 @@ test('no MCP groups renders no MCP block', () => {
   assert.doesNotMatch(prompt, /MCP server/);
 });
 
+test('agent name renders as an identity line outside the replaceable base', () => {
+  const named = composeSystemPrompt({ ...opts, agentName: 'Monica Geller' });
+  assert.match(named, /Your name is "Monica Geller"\./);
+
+  // Also with a custom prompt — identity must not depend on the base.
+  const custom = composeSystemPrompt({ ...opts, customPrompt: 'You are a pirate.', agentName: 'Sheldon' });
+  assert.ok(custom.startsWith('You are a pirate.'));
+  assert.match(custom, /Your name is "Sheldon"\./);
+
+  // And absent when no name is given (e.g. agent-less contexts).
+  assert.doesNotMatch(composeSystemPrompt(opts), /Your name is/);
+});
+
 test('custom agent prompt keeps the STYLE rules', () => {
   const prompt = composeSystemPrompt({ ...opts, customPrompt: 'You are Bob, a pirate.' });
   assert.ok(prompt.startsWith('You are Bob, a pirate.'));
