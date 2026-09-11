@@ -79,10 +79,14 @@ export class TelegramManager {
     const freshById = new Map(channels.map(c => [c.id, c]));
     this.#channelById = freshById;
 
-    // Stop bots whose channel is gone or whose bot token changed.
+    // Stop bots whose channel is gone, whose bot token changed, or whose
+    // NAME changed — the name is the webhook path, so a rename must restart
+    // the bot to register the new route and re-point Telegram's webhook.
+    // (Renames used to keep the old bot alive: Telegram kept posting to the
+    // old path, which 404s after the next container restart — silent bot.)
     for (const [id, bot] of [...this.#bots]) {
       const fresh = freshById.get(id);
-      if (!fresh || fresh.config?.token !== bot.__channelToken) {
+      if (!fresh || fresh.config?.token !== bot.__channelToken || fresh.name !== bot.__channelName) {
         try { await bot.stopPolling(); } catch {}
         if (bot.__periodicTimer) clearInterval(bot.__periodicTimer);
         this.#bots.delete(id);
@@ -99,7 +103,13 @@ export class TelegramManager {
     // the fresh config from #channelById on the next message.
     for (const channel of channels) {
       if (!this.#bots.has(channel.id)) {
-        await this.#startBot(channel);
+        // Contain per-channel failures: one bot that can't start (bad token,
+        // Telegram outage) must not keep every later channel from starting.
+        try {
+          await this.#startBot(channel);
+        } catch (err) {
+          console.error(`[telegram] ${channel.name}: failed to start: ${err.message}`);
+        }
       } else {
         // Reset the periodic timer if its interval changed, so the new
         // cadence takes effect without restarting the bot itself.
@@ -123,6 +133,7 @@ export class TelegramManager {
 
     const bot = new TelegramBot(botToken, { polling: isPolling });
     bot.__channelToken = botToken; // remembered by reload() to detect token rotations
+    bot.__channelName = channel.name; // ditto for renames — the name IS the webhook path
 
     bot.on('polling_error', (err) => {
       const name = this.#channelById.get(channelId)?.name || channel.name;
@@ -137,12 +148,21 @@ export class TelegramManager {
     if (!isPolling && config.telegram.webhookUrl && this.#expressApp) {
       const path = `/webhook/${channel.name}`;
       const url = `${config.telegram.webhookUrl}${path}`;
-      await bot.setWebHook(url);
+      // Route first, setWebHook second: if Telegram's API hiccups (rate
+      // limit during a burst of deploys), the endpoint must still exist —
+      // otherwise the bot 404s every delivery until the next restart, while
+      // setMyCommands further down still succeeds and makes the bot LOOK
+      // healthy in the Telegram client.
       this.#expressApp.post(path, (req, res) => {
         bot.processUpdate(req.body);
         res.sendStatus(200);
       });
-      console.log(`[telegram] ${channel.name}: webhook at ${url}`);
+      try {
+        await bot.setWebHook(url);
+        console.log(`[telegram] ${channel.name}: webhook at ${url}`);
+      } catch (err) {
+        console.error(`[telegram] ${channel.name}: setWebHook failed (route is up, retry via disable/enable): ${err.message}`);
+      }
     } else {
       console.log(`[telegram] ${channel.name}: polling`);
     }
