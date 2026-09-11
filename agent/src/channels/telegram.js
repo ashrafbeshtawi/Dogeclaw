@@ -352,6 +352,7 @@ export class TelegramManager {
       try {
         const result = await this.#agent.run(text, history, {
           agentId: channel.agent_id,
+          agentName: channel.agent_name,
           channelId: channel.id,
           chatId: String(chatId),
           sessionId,
@@ -443,6 +444,7 @@ export class TelegramManager {
       try {
         const result = await this.#agent.run(combined, [], {
           agentId: channel.agent_id,
+          agentName: channel.agent_name,
           channelId: channel.id,
           chatId: String(chatId),
           systemPrompt: channel.system_prompt,

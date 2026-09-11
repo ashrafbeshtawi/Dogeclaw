@@ -165,6 +165,7 @@ export class CronRunner {
 
         const result = await this.#agent.run('', history, {
           agentId: job.agent_id,
+          agentName: agentRow.name,
           channelId: isTelegram ? job.channel_id : null,
           chatId: isTelegram ? String(job.chat_id) : null,
           sessionId,

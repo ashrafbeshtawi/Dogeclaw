@@ -25,10 +25,13 @@ function renderMcpBlock(groups) {
 
 // The STYLE block and tool rules are appended OUTSIDE the replaceable base,
 // so a custom per-agent system_prompt from the admin UI can never strip them.
-export function composeSystemPrompt({ customPrompt, workspace, toolDescriptions, skillsBlock = '', mcpGroups = [] }) {
+// Same for the identity line: the agent knows its admin-given name without
+// every custom prompt having to repeat it.
+export function composeSystemPrompt({ customPrompt, agentName, workspace, toolDescriptions, skillsBlock = '', mcpGroups = [] }) {
   const base = customPrompt || DEFAULT_SYSTEM_PROMPT;
+  const identity = agentName ? `\n\nYour name is "${agentName}".` : '';
 
-  return `${base}
+  return `${base}${identity}
 
 STYLE — these rules always apply, even if the instructions above say otherwise:
 You are a chat agent, not a writer. Reply like a text message: 1-3 short sentences by default.

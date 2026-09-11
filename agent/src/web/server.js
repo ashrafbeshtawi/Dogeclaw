@@ -215,6 +215,7 @@ export function createWebServer(agent) {
 
         const result = await agent.run(message || '', history, {
           agentId: aid,
+          agentName: agentConfig?.name,
           sessionId: sid,
           systemPrompt: agentConfig?.system_prompt,
           modelConfig,
