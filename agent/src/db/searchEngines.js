@@ -10,8 +10,8 @@ export async function listActiveEngines() {
   return res.rows;
 }
 
-// Gate for tool visibility: web_search/web_research only exist for the
-// agent while this is true.
+// Gate for tool visibility: web_search only exists for the agent while
+// this is true.
 export async function hasActiveSearchEngine() {
   const res = await adminQuery('SELECT EXISTS (SELECT 1 FROM search_engines WHERE enabled) AS yes');
   return res.rows[0].yes;

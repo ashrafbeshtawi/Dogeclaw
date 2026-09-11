@@ -21,7 +21,7 @@
 import { assertPublicUrl } from './ssrfGuard.js';
 
 // A real browser UA: the honest "DogeClaw/1.0" got blocked by many sites
-// (news especially) — exactly the pages web_research is asked to read.
+// (news especially) — exactly the pages web_fetch is asked to read.
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 const MAX_REDIRECTS = 5;
 
