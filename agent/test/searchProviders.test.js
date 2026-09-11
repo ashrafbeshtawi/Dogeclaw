@@ -117,7 +117,6 @@ test('hideSearchTools removes search tools only when no engine is active', () =>
   const entries = [
     { name: 'web_fetch', meta: null },
     { name: 'web_search', meta: { requiresSearchEngine: true } },
-    { name: 'web_research', meta: { requiresSearchEngine: true } },
   ];
   assert.deepEqual(hideSearchTools(entries, false).map(e => e.name), ['web_fetch']);
   assert.equal(hideSearchTools(entries, true), entries);

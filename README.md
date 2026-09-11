@@ -194,7 +194,7 @@ Reusable knowledge / instructions stored in the DB, assignable per-agent (or mar
 - **File ops** — read, write, list, delete files
 - **`schedule_cron`** — let the agent set up its own scheduled tasks
 - **`database`** — structured Postgres access via the restricted role: list/describe the agent's tables, select/insert/update/delete rows, raw SQL as escape hatch
-- **`web_search` / `web_fetch` / `web_research`** — fetch and parse pages with cheerio
+- **`web_search` / `web_fetch`** — search the web and fetch/parse pages with cheerio
 - **`http_request`** — raw HTTP calls for JSON/REST APIs
 - **`search_history`** — search the current conversation's full stored history
 - **MCP bridge** — connect any Model Context Protocol stdio server and expose its tools to the agent
