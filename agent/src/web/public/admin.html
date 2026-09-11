@@ -120,6 +120,12 @@
             <div class="flex items-center gap-3 mb-4">
                 <h2 class="text-base font-bold">Cron Jobs</h2>
                 <button class="btn btn-primary btn-sm" onclick="openCronModal()">+ New Job</button>
+                <div class="flex gap-1" id="cronViewTabs">
+                    <button class="btn btn-xs" data-cron-view="all" onclick="setCronView('all')">All</button>
+                    <button class="btn btn-xs" data-cron-view="active" onclick="setCronView('active')">Active</button>
+                    <button class="btn btn-xs" data-cron-view="inactive" onclick="setCronView('inactive')">Inactive</button>
+                </div>
+                <input type="text" id="cronFilterInput" placeholder="Filter agent, target, prompt…" class="input input-sm w-56 ml-auto" oninput="renderCrons()">
             </div>
             <div class="overflow-x-auto rounded-2xl border border-white/5 bg-base-100">
                 <table class="table table-sm">
@@ -917,8 +923,42 @@
         async function deleteChannel(id){if(!confirm('Delete this channel?'))return;await api('DELETE','/api/channels/'+id);load();}
 
         // Cron CRUD
+        // View state for the crons table: sub-tab (all/active/inactive) and
+        // free-text filter. Both are pure client-side over the loaded list.
+        var cronView = 'all';
+        function setCronView(v) { cronView = v; renderCrons(); }
+
+        function cronMatchesFilter(j, q) {
+            if (!q) return true;
+            var hay = [j.agent_name, j.prompt, j.description, j.expression, j.channel_name, j.chat_id, j.session_id, j.timezone]
+                .filter(Boolean).join(' ').toLowerCase();
+            return hay.indexOf(q) !== -1;
+        }
+
         function renderCrons() {
-            document.getElementById('cronsTable').innerHTML = crons.map(function(j) {
+            var q = (document.getElementById('cronFilterInput').value || '').trim().toLowerCase();
+            var activeCount = crons.filter(function(j){ return j.enabled; }).length;
+            var counts = { all: crons.length, active: activeCount, inactive: crons.length - activeCount };
+            document.querySelectorAll('#cronViewTabs button').forEach(function(b) {
+                var v = b.dataset.cronView;
+                b.textContent = v.charAt(0).toUpperCase() + v.slice(1) + ' (' + counts[v] + ')';
+                b.className = 'btn btn-xs ' + (v === cronView ? 'btn-primary' : 'btn-ghost border border-white/10');
+            });
+
+            var shown = crons.filter(function(j) {
+                if (cronView === 'active' && !j.enabled) return false;
+                if (cronView === 'inactive' && j.enabled) return false;
+                return cronMatchesFilter(j, q);
+            });
+            // Active jobs first (relevant in the All view), stable id order within.
+            shown.sort(function(a, b) { return (b.enabled - a.enabled) || (a.id - b.id); });
+
+            if (!shown.length) {
+                document.getElementById('cronsTable').innerHTML =
+                    '<tr><td colspan="8" style="opacity:0.4;text-align:center;padding:1.5rem">No jobs match.</td></tr>';
+                return;
+            }
+            document.getElementById('cronsTable').innerHTML = shown.map(function(j) {
                 var sched = j.expression
                     ? '<code>' + esc(j.expression) + '</code>'
                     : 'at ' + esc(new Date(j.run_at).toISOString());
