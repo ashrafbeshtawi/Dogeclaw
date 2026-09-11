@@ -74,6 +74,50 @@ test.describe('cron jobs tab', () => {
     await expect(row).toContainText('at 2099-');
   });
 
+  test('view tabs and text filter narrow the table; active jobs sort first', async ({ page, request }) => {
+    const onPrompt = await uniqueName('pw-cron-on');
+    const offPrompt = await uniqueName('pw-cron-off');
+    const on = await (await request.post('/api/cron-jobs', {
+      data: { agent_id: agentId, channel_id: channelId, chat_id: '1', expression: '*/5 * * * *', prompt: onPrompt, enabled: true },
+    })).json();
+    const off = await (await request.post('/api/cron-jobs', {
+      data: { agent_id: agentId, channel_id: channelId, chat_id: '1', expression: '*/5 * * * *', prompt: offPrompt, enabled: false },
+    })).json();
+
+    try {
+      await openAdminTab(page, 'crons');
+
+      // All view: both visible, tab labels carry counts, active row first
+      await expect(page.locator('#cronsTable tr', { hasText: onPrompt })).toHaveCount(1);
+      await expect(page.locator('#cronsTable tr', { hasText: offPrompt })).toHaveCount(1);
+      await expect(page.locator('[data-cron-view="all"]')).toContainText('All (');
+      const rowTexts = await page.locator('#cronsTable tr').allTextContents();
+      expect(rowTexts.findIndex(t => t.includes(onPrompt)))
+        .toBeLessThan(rowTexts.findIndex(t => t.includes(offPrompt)));
+
+      // Active view hides the disabled job; Inactive shows only it
+      await page.click('[data-cron-view="active"]');
+      await expect(page.locator('#cronsTable tr', { hasText: offPrompt })).toHaveCount(0);
+      await expect(page.locator('#cronsTable tr', { hasText: onPrompt })).toHaveCount(1);
+      await page.click('[data-cron-view="inactive"]');
+      await expect(page.locator('#cronsTable tr', { hasText: onPrompt })).toHaveCount(0);
+      await expect(page.locator('#cronsTable tr', { hasText: offPrompt })).toHaveCount(1);
+
+      // Text filter narrows within the All view
+      await page.click('[data-cron-view="all"]');
+      await page.fill('#cronFilterInput', onPrompt);
+      await expect(page.locator('#cronsTable tr', { hasText: onPrompt })).toHaveCount(1);
+      await expect(page.locator('#cronsTable tr', { hasText: offPrompt })).toHaveCount(0);
+      // No match → empty state, not a stale table
+      await page.fill('#cronFilterInput', 'pw-no-such-cron-xyz');
+      await expect(page.locator('#cronsTable')).toContainText('No jobs match');
+      await page.fill('#cronFilterInput', '');
+    } finally {
+      await request.delete(`/api/cron-jobs/${on.id}`);
+      await request.delete(`/api/cron-jobs/${off.id}`);
+    }
+  });
+
   test('API rejects both expression and run_at', async ({ request }) => {
     const r = await request.post('/api/cron-jobs', {
       data: {
