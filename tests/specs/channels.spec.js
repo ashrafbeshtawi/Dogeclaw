@@ -77,14 +77,16 @@ test.describe('channels tab', () => {
     }
   });
 
-  test('agent DB role cannot read channel tokens or model api keys', async ({ request }) => {
+  test('agent DB role cannot read the system-only channels/models tables', async ({ request }) => {
     const { psql } = require('../helpers/db.js');
-    // Non-secret columns stay readable for the agent's raw SQL tool...
-    expect(() => psql('SET ROLE dogeclaw; SELECT id, name, type FROM channels LIMIT 1;')).not.toThrow();
-    expect(() => psql('SET ROLE dogeclaw; SELECT id, name, provider FROM models LIMIT 1;')).not.toThrow();
-    // ...but the secrets are column-revoked (V18).
+    // channels and models are system-only (V18): the agent's raw SQL tool
+    // has no access at all — tokens and api keys are unreachable.
+    expect(() => psql('SET ROLE dogeclaw; SELECT id FROM channels LIMIT 1;')).toThrow(/permission denied/);
     expect(() => psql('SET ROLE dogeclaw; SELECT token FROM channels LIMIT 1;')).toThrow(/permission denied/);
-    expect(() => psql('SET ROLE dogeclaw; SELECT webhook_id FROM channels LIMIT 1;')).toThrow(/permission denied/);
+    expect(() => psql('SET ROLE dogeclaw; SELECT id FROM models LIMIT 1;')).toThrow(/permission denied/);
     expect(() => psql('SET ROLE dogeclaw; SELECT api_key FROM models LIMIT 1;')).toThrow(/permission denied/);
+    // Tables the agent legitimately uses stay readable.
+    expect(() => psql('SET ROLE dogeclaw; SELECT id FROM skills LIMIT 1;')).not.toThrow();
+    expect(() => psql('SET ROLE dogeclaw; SELECT id FROM agents LIMIT 1;')).not.toThrow();
   });
 });

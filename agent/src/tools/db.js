@@ -5,7 +5,7 @@ import { trimTextFields } from '../lib/trimTextFields.js';
 // writes plain SQL for reads and writes — earlier per-operation wrappers
 // (db_select/insert/update/delete) just re-invented a worse SQL in JSON.
 
-const READ_ONLY_NOTE = 'The agents, channels, models and skills tables are read-only.';
+const READ_ONLY_NOTE = 'The agents and skills tables are read-only.';
 
 export function register(registry) {
   registry.register('db_list_tables', {

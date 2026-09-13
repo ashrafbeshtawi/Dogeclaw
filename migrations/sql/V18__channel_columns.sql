@@ -15,10 +15,10 @@
 -- Grants: the restricted dogeclaw role had whole-table SELECT on channels
 -- and models — including channels.config (bot tokens) and models.api_key.
 -- The agent's raw SQL tool runs as that role, so a prompt-injected agent
--- could exfiltrate its own credentials. Column grants exclude the secrets
--- (same policy as mcp_servers/search_engines: the agent never reads its own
--- tool sources or keys). Note: `SELECT *` on these tables now fails for the
--- agent role — it must name non-secret columns.
+-- could exfiltrate its own credentials. These are system-only tables: no
+-- code path running as the agent role reads them, so the grant is revoked
+-- entirely (same policy as mcp_servers/search_engines: the agent never
+-- reads its own tool sources or keys).
 
 ALTER TABLE channels
   ADD COLUMN IF NOT EXISTS token TEXT,
@@ -29,7 +29,5 @@ ALTER TABLE channels DROP COLUMN IF EXISTS config;
 DO $$
 BEGIN
   EXECUTE 'REVOKE SELECT ON channels, models FROM dogeclaw';
-  EXECUTE 'GRANT SELECT (id, agent_id, type, name, response_mode, response_interval, enabled, created_at) ON channels TO dogeclaw';
-  EXECUTE 'GRANT SELECT (id, name, provider, base_url, model_id, think, accepts, created_at) ON models TO dogeclaw';
 END
 $$;
