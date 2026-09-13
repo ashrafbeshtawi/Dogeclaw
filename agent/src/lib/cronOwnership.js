@@ -1,6 +1,6 @@
 // Pure helper — does a cron job belong to the calling conversation?
 //
-// manage_cron's `add` binds every new job to the caller (telegram
+// add_cron binds every new job to the caller (telegram
 // channel+chat, or web session). list/remove must enforce the same
 // boundary, otherwise any conversation can read other chats' scheduled
 // prompts and cancel their jobs. Mirrors the ownership check in

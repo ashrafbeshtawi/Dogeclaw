@@ -1,5 +1,7 @@
 const { test, expect } = require('@playwright/test');
 
+const BASE = process.env.DOGECLAW_TEST_URL || 'http://localhost:3000';
+
 // Auth tests need an unauthenticated browser context. Override the default
 // storageState so cookies from global-setup don't leak in.
 test.use({ storageState: { cookies: [], origins: [] } });
@@ -23,7 +25,7 @@ test('valid credentials redirect to chat', async ({ page }) => {
   await page.fill('input[name="user"]', 'admin');
   await page.fill('input[name="password"]', 'changeme');
   await Promise.all([
-    page.waitForURL(/^http:\/\/localhost:3000\/?$/),
+    page.waitForURL(new RegExp('^' + BASE + '/?$')),
     page.click('button[type="submit"]'),
   ]);
 });
@@ -34,7 +36,7 @@ test('logout clears auth and bounces back to login', async ({ page, request }) =
   await page.fill('input[name="user"]', 'admin');
   await page.fill('input[name="password"]', 'changeme');
   await Promise.all([
-    page.waitForURL(/^http:\/\/localhost:3000\/?$/),
+    page.waitForURL(new RegExp('^' + BASE + '/?$')),
     page.click('button[type="submit"]'),
   ]);
 

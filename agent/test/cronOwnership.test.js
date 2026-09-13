@@ -1,5 +1,5 @@
 // Unit tests for the cron-job ownership rule (src/lib/cronOwnership.js):
-// manage_cron list/remove must only see jobs bound to the calling
+// list_crons/get_cron/remove_cron must only see jobs bound to the calling
 // conversation — telegram channel+chat, or web session.
 // Run with: npm test (node --test, stdlib only — no framework).
 
