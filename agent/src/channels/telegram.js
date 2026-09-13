@@ -1,5 +1,5 @@
 import TelegramBot from 'node-telegram-bot-api';
-import { agentQuery as query } from '../db/pool.js';
+import { adminQuery } from '../db/pool.js';
 import {
   loadSession,
   ensureSession,
@@ -59,7 +59,10 @@ export class TelegramManager {
   async reload() {
     let channels = [];
     try {
-      const result = await query(`
+      // Admin connection: this join reads bot tokens and model API keys —
+      // secrets the restricted dogeclaw role deliberately cannot see (V18
+      // column grants). The manager is trusted server code.
+      const result = await adminQuery(`
         SELECT c.*, a.name as agent_name, a.system_prompt,
                m.base_url, m.model_id, m.think, m.accepts, m.provider, m.api_key
         FROM channels c
@@ -79,14 +82,12 @@ export class TelegramManager {
     const freshById = new Map(channels.map(c => [c.id, c]));
     this.#channelById = freshById;
 
-    // Stop bots whose channel is gone, whose bot token changed, or whose
-    // NAME changed — the name is the webhook path, so a rename must restart
-    // the bot to register the new route and re-point Telegram's webhook.
-    // (Renames used to keep the old bot alive: Telegram kept posting to the
-    // old path, which 404s after the next container restart — silent bot.)
+    // Stop bots whose channel is gone or whose bot token changed. Renames
+    // don't matter: the webhook path is the DB-minted webhook_id, fixed at
+    // channel creation.
     for (const [id, bot] of [...this.#bots]) {
       const fresh = freshById.get(id);
-      if (!fresh || fresh.config?.token !== bot.__channelToken || fresh.name !== bot.__channelName) {
+      if (!fresh || fresh.token !== bot.__channelToken) {
         try { await bot.stopPolling(); } catch {}
         if (bot.__periodicTimer) clearInterval(bot.__periodicTimer);
         this.#bots.delete(id);
@@ -125,15 +126,14 @@ export class TelegramManager {
   }
 
   async #startBot(channel) {
-    const botToken = channel.config?.token;
-    if (!botToken) { console.error(`[telegram] ${channel.name}: no token in config`); return; }
+    const botToken = channel.token;
+    if (!botToken) { console.error(`[telegram] ${channel.name}: no bot token`); return; }
 
     const channelId = channel.id;
     const isPolling = config.telegram.mode === 'polling';
 
     const bot = new TelegramBot(botToken, { polling: isPolling });
     bot.__channelToken = botToken; // remembered by reload() to detect token rotations
-    bot.__channelName = channel.name; // ditto for renames — the name IS the webhook path
 
     bot.on('polling_error', (err) => {
       const name = this.#channelById.get(channelId)?.name || channel.name;
@@ -146,7 +146,7 @@ export class TelegramManager {
     });
 
     if (!isPolling && config.telegram.webhookUrl && this.#expressApp) {
-      const path = `/webhook/${channel.name}`;
+      const path = `/webhook/${channel.webhook_id}`;
       const url = `${config.telegram.webhookUrl}${path}`;
       // Route first, setWebHook second: if Telegram's API hiccups (rate
       // limit during a burst of deploys), the endpoint must still exist —
@@ -171,11 +171,13 @@ export class TelegramManager {
       // Look up the LIVE channel config on every message. This is what makes
       // model swaps in the admin UI take effect without restarting the bot.
       const current = this.#channelById.get(channelId) || channel;
-      const allowedUsers = current.config?.allowed_users || [];
+      // BIGINT[] comes back from pg as strings — compare as strings so the
+      // numeric msg.from.id always matches.
+      const allowedUsers = (current.allowed_users || []).map(String);
 
       console.log(`[telegram] ${current.name}: message from ${msg.from.id}: ${(msg.text || '(media)').slice(0, 50)}`);
 
-      if (allowedUsers.length > 0 && !allowedUsers.includes(msg.from.id)) {
+      if (allowedUsers.length > 0 && !allowedUsers.includes(String(msg.from.id))) {
         console.log(`[telegram] ${current.name}: user ${msg.from.id} not in allowlist`);
         return;
       }

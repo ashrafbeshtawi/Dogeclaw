@@ -170,8 +170,7 @@ async function seedTelegramChannel(agentIds) {
   );
   if (existing.rowCount > 0) {
     await adminQuery(
-      `UPDATE channels SET config = jsonb_set(config, '{token}', to_jsonb($1::text)), agent_id = $2
-       WHERE id = $3`,
+      `UPDATE channels SET token = $1, agent_id = $2 WHERE id = $3`,
       [TG_TOKEN, assistantId, existing.rows[0].id],
     );
     console.log(`[seed] telegram channel "${TG_CHANNEL_NAME}" updated (id=${existing.rows[0].id})`);
@@ -179,10 +178,10 @@ async function seedTelegramChannel(agentIds) {
   }
 
   const res = await adminQuery(
-    `INSERT INTO channels (agent_id, type, name, config, response_mode, enabled)
-     VALUES ($1, 'telegram', $2, $3::jsonb, 'immediate', true)
+    `INSERT INTO channels (agent_id, type, name, token, response_mode, enabled)
+     VALUES ($1, 'telegram', $2, $3, 'immediate', true)
      RETURNING id`,
-    [assistantId, TG_CHANNEL_NAME, JSON.stringify({ token: TG_TOKEN })],
+    [assistantId, TG_CHANNEL_NAME, TG_TOKEN],
   );
   console.log(`[seed] telegram channel "${TG_CHANNEL_NAME}" created (id=${res.rows[0].id})`);
 }

@@ -45,4 +45,48 @@ test.describe('channels tab', () => {
       await page.request.delete(`/api/agents/${agentId}`);
     }
   });
+
+  test('webhook_id is minted at creation and survives edits', async ({ request }) => {
+    const a = await request.post('/api/agents', { data: { name: await uniqueName('agent'), system_prompt: '' } });
+    const agentId = (await a.json()).id;
+    const c = await request.post('/api/channels', {
+      data: { agent_id: agentId, type: 'telegram', name: await uniqueName('channel'), token: 'fake', response_mode: 'immediate' },
+    });
+    const channel = await c.json();
+
+    try {
+      // DB default mints a uuid at INSERT — present from the first response
+      expect(channel.webhook_id).toMatch(/^[0-9a-f-]{36}$/);
+
+      // Rename + token rotation must not touch it
+      const upd = await request.put(`/api/channels/${channel.id}`, {
+        data: { name: await uniqueName('renamed'), token: 'fake-rotated', allowed_users: [1, 2] },
+      });
+      const row = await upd.json();
+      expect(row.webhook_id).toBe(channel.webhook_id);
+      expect(row.token).toBe('fake-rotated');
+      expect(row.allowed_users.map(Number)).toEqual([1, 2]);
+
+      // telegram channels require a token at creation
+      const noToken = await request.post('/api/channels', {
+        data: { agent_id: agentId, type: 'telegram', name: await uniqueName('channel') },
+      });
+      expect(noToken.status()).toBe(400);
+    } finally {
+      await request.delete(`/api/agents/${agentId}`);
+    }
+  });
+
+  test('agent DB role cannot read the system-only channels/models tables', async ({ request }) => {
+    const { psql } = require('../helpers/db.js');
+    // channels and models are system-only (V18): the agent's raw SQL tool
+    // has no access at all — tokens and api keys are unreachable.
+    expect(() => psql('SET ROLE dogeclaw; SELECT id FROM channels LIMIT 1;')).toThrow(/permission denied/);
+    expect(() => psql('SET ROLE dogeclaw; SELECT token FROM channels LIMIT 1;')).toThrow(/permission denied/);
+    expect(() => psql('SET ROLE dogeclaw; SELECT id FROM models LIMIT 1;')).toThrow(/permission denied/);
+    expect(() => psql('SET ROLE dogeclaw; SELECT api_key FROM models LIMIT 1;')).toThrow(/permission denied/);
+    // Tables the agent legitimately uses stay readable.
+    expect(() => psql('SET ROLE dogeclaw; SELECT id FROM skills LIMIT 1;')).not.toThrow();
+    expect(() => psql('SET ROLE dogeclaw; SELECT id FROM agents LIMIT 1;')).not.toThrow();
+  });
 });
