@@ -11,6 +11,11 @@ const path = require('node:path');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
 
+// Override when something else occupies :3000 locally, e.g.
+// DOGECLAW_TEST_URL=http://localhost:3005 npm test (bring the stack up on
+// that port yourself first — the auto-start below only knows the default).
+const BASE = process.env.DOGECLAW_TEST_URL || 'http://localhost:3000';
+
 module.exports = defineConfig({
   testDir: './specs',
   timeout: 30_000,
@@ -21,7 +26,7 @@ module.exports = defineConfig({
   reporter: process.env.CI ? 'list' : [['list'], ['html', { open: 'never' }]],
 
   use: {
-    baseURL: 'http://localhost:3000',
+    baseURL: BASE,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'off',
@@ -32,7 +37,7 @@ module.exports = defineConfig({
 
   webServer: {
     command: `docker compose -f ${path.join(REPO_ROOT, 'docker-compose.yml')} up -d`,
-    url: 'http://localhost:3000/login',
+    url: BASE + '/login',
     reuseExistingServer: true,
     timeout: 180_000,
     stdout: 'pipe',

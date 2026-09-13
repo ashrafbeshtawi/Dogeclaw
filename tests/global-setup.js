@@ -6,7 +6,7 @@ const path = require('node:path');
 const fs = require('node:fs');
 const { clearTestData } = require('./helpers/cleanup.js');
 
-const BASE = 'http://localhost:3000';
+const BASE = process.env.DOGECLAW_TEST_URL || 'http://localhost:3000';
 const USER = 'admin';
 const PASSWORD = 'changeme';
 const STATE_PATH = path.join(__dirname, '.auth/state.json');
