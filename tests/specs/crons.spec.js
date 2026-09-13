@@ -10,7 +10,7 @@ test.describe('cron jobs tab', () => {
     agentId = (await a.json()).id;
     channelName = `pw-cron-channel-fix-${Date.now()}`;
     const c = await request.post('/api/channels', {
-      data: { agent_id: agentId, type: 'telegram', name: channelName, config: { token: 'fake' }, response_mode: 'immediate' },
+      data: { agent_id: agentId, type: 'telegram', name: channelName, token: 'fake', response_mode: 'immediate' },
     });
     channelId = (await c.json()).id;
   });
@@ -229,7 +229,7 @@ test.describe('cron jobs tab', () => {
     // Build a disposable channel + cron
     const tmpChannelName = `pw-cron-tmpchan-${Date.now()}`;
     const c = await request.post('/api/channels', {
-      data: { agent_id: agentId, type: 'telegram', name: tmpChannelName, config: { token: 'fake' }, response_mode: 'immediate' },
+      data: { agent_id: agentId, type: 'telegram', name: tmpChannelName, token: 'fake', response_mode: 'immediate' },
     });
     const tmpChannelId = (await c.json()).id;
     const desc = `pw-cron-cascade-chan-${Date.now()}`;

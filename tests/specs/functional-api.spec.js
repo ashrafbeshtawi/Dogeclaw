@@ -22,7 +22,7 @@ test.describe('auth gate on the API surface', () => {
     // Explicit empty storageState — inside the runner, newContext() inherits
     // the config's logged-in state and would silently authenticate us.
     anon = await pwRequest.newContext({
-      baseURL: 'http://localhost:3000',
+      baseURL: process.env.DOGECLAW_TEST_URL || 'http://localhost:3000',
       storageState: { cookies: [], origins: [] },
     });
   });
@@ -183,7 +183,7 @@ test.describe('FK semantics and skill assignment', () => {
         agent_id: agentId,
         type: 'telegram',
         name: await uniqueName('func-chan'),
-        config: { token: 'pw-fake-token' },
+        token: 'pw-fake-token',
       },
     });
     const channelId = (await chan.json()).id;

@@ -42,7 +42,7 @@ test.describe('settings tab', () => {
     const a = await request.post('/api/agents', { data: { name: 'pw-tz-agent', system_prompt: '' } });
     const agentId = (await a.json()).id;
     const c = await request.post('/api/channels', {
-      data: { agent_id: agentId, type: 'telegram', name: `pw-tz-channel-${Date.now()}`, config: { token: 'fake' }, response_mode: 'immediate' },
+      data: { agent_id: agentId, type: 'telegram', name: `pw-tz-channel-${Date.now()}`, token: 'fake', response_mode: 'immediate' },
     });
 
     try {

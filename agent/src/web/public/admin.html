@@ -334,7 +334,7 @@
             <input type="hidden" id="channelId">
             <label>Name</label>
             <input type="text" id="channelName" placeholder="my-telegram-bot">
-            <div class="field-hint">Used as webhook path: <code>/webhook/&lt;name&gt;</code></div>
+            <div class="field-hint">Display name only — the webhook path is a stable id minted at creation, so renaming is always safe.</div>
             <label>Type</label>
             <select id="channelType"><option value="telegram">Telegram</option></select>
             <label>Agent</label>
@@ -886,12 +886,13 @@
         async function deleteAgent(id){if(!confirm('Delete this agent?'))return;await api('DELETE','/api/agents/'+id);load();}
 
         // Channel CRUD
-        function updateWebhookHint() {
+        function updateWebhookHint(channel) {
             var h = document.getElementById('webhookHint');
-            var n = document.getElementById('channelName').value;
-            if (siteConfig.telegramMode==='webhook'&&siteConfig.webhookUrl&&n) h.innerHTML='Webhook: <code>'+esc(siteConfig.webhookUrl)+'/webhook/'+esc(n)+'</code>';
-            else if (siteConfig.telegramMode==='polling') h.textContent='Using polling mode (dev).';
-            else h.textContent='';
+            if (siteConfig.telegramMode === 'polling') { h.textContent = 'Using polling mode (dev).'; return; }
+            if (siteConfig.telegramMode !== 'webhook' || !siteConfig.webhookUrl) { h.textContent = ''; return; }
+            h.innerHTML = channel && channel.webhook_id
+                ? 'Webhook: <code>' + esc(siteConfig.webhookUrl) + '/webhook/' + esc(channel.webhook_id) + '</code>'
+                : 'Webhook path is minted when the channel is created.';
         }
         function openChannelModal(c) {
             if (typeof c==='number') c=find(channels,c);
@@ -899,22 +900,22 @@
             document.getElementById('channelId').value = c?c.id:'';
             document.getElementById('channelName').value = c?c.name:'';
             document.getElementById('channelType').value = c?c.type:'telegram';
-            document.getElementById('channelToken').value = c&&c.config?c.config.token||'':'';
-            document.getElementById('channelUsers').value = c&&c.config&&c.config.allowed_users?c.config.allowed_users.join(','):'';
+            document.getElementById('channelToken').value = c?c.token||'':'';
+            document.getElementById('channelUsers').value = c&&c.allowed_users?c.allowed_users.join(','):'';
             document.getElementById('channelMode').value = c?c.response_mode:'immediate';
             document.getElementById('channelInterval').value = c?c.response_interval||'':'';
             document.getElementById('channelEnabled').checked = c?c.enabled!==false:true;
             setTimeout(function(){if(c&&c.agent_id)document.getElementById('channelAgent').value=c.agent_id;},0);
             document.getElementById('channelModal').classList.add('open');
-            updateWebhookHint();
+            updateWebhookHint(c);
         }
         function editChannel(id){openChannelModal(id);}
-        document.getElementById('channelName').addEventListener('input',updateWebhookHint);
         async function saveChannel() {
             var id = document.getElementById('channelId').value;
             var body = {name:document.getElementById('channelName').value, type:document.getElementById('channelType').value,
                 agent_id:parseInt(document.getElementById('channelAgent').value),
-                config:{token:document.getElementById('channelToken').value, allowed_users:document.getElementById('channelUsers').value.split(',').map(Number).filter(Boolean)},
+                token:document.getElementById('channelToken').value,
+                allowed_users:document.getElementById('channelUsers').value.split(',').map(Number).filter(Boolean),
                 response_mode:document.getElementById('channelMode').value, response_interval:document.getElementById('channelInterval').value||null,
                 enabled:document.getElementById('channelEnabled').checked};
             if (id) await api('PUT','/api/channels/'+id,body); else await api('POST','/api/channels',body);

@@ -65,7 +65,7 @@ test.describe('telegram channel picks up agent.model_id changes live', () => {
         agent_id: agentId,
         type: 'telegram',
         name: await uniqueName('tg-runtime-channel'),
-        config: { token: '0000000000:PW-TEST-TOKEN-not-real' },
+        token: '0000000000:PW-TEST-TOKEN-not-real',
         response_mode: 'immediate',
       },
     });
@@ -112,8 +112,9 @@ test.describe('telegram channel picks up agent.model_id changes live', () => {
     const r = await request.get(`/api/channels/${channelId}/runtime`);
     expect(r.ok()).toBeTruthy();
     const v = await r.json();
-    expect(v.config).toBeDefined();
-    expect(v.config.token).toBeUndefined();
+    expect(v.name).toBeDefined();
+    expect(v.token).toBeUndefined();
+    expect(v.api_key).toBeUndefined();
     // Also make sure the token isn't smuggled in somewhere else in the payload.
     expect(JSON.stringify(v)).not.toContain('PW-TEST-TOKEN-not-real');
   });

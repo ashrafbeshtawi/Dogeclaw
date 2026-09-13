@@ -456,35 +456,38 @@ export function createWebServer(agent) {
     if (!telegramManager) return res.status(503).json({ error: 'telegram manager not running' });
     const view = telegramManager.getChannelView(req.params.id);
     if (!view) return res.status(404).json({ error: 'no live channel data for this id' });
-    // Don't leak the bot token.
-    const safeConfig = { ...(view.config || {}) };
-    delete safeConfig.token;
-    res.json({ ...view, config: safeConfig });
+    // Don't leak secrets: the bot token and the model api key ride along in
+    // the manager's joined row.
+    const { token, api_key, ...safeView } = view;
+    res.json(safeView);
   });
 
   app.post('/api/channels', authMiddleware, async (req, res) => {
-    const { agent_id, type, name, config: channelConfig, response_mode, response_interval } = req.body;
+    const { agent_id, type, name, token, allowed_users, response_mode, response_interval } = req.body;
     if (!agent_id || !type || !name) return res.status(400).json({ error: 'agent_id, type, and name required' });
+    if (type === 'telegram' && !token) return res.status(400).json({ error: 'token required for telegram channels' });
+    // webhook_id is minted by the DB default at INSERT and never changes —
+    // the telegram manager's #startBot registers the route and points
+    // Telegram's webhook at it during the reload below.
     const result = await query(
-      'INSERT INTO channels (agent_id, type, name, config, response_mode, response_interval) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
-      [agent_id, type, name, JSON.stringify(channelConfig || {}), response_mode || 'immediate', response_interval],
+      `INSERT INTO channels (agent_id, type, name, token, allowed_users, response_mode, response_interval)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+      [agent_id, type, name, token, allowed_users || [], response_mode || 'immediate', response_interval],
     );
-    // The webhook (and its Express route) is registered by the telegram
-    // manager's #startBot during the reload below — the single place that
-    // owns it, so create/rename/token-change all behave the same.
     res.json(result.rows[0]);
     if (telegramManager) telegramManager.reload().catch(e => console.error('[telegram] reload failed:', e.message));
   });
 
   app.put('/api/channels/:id', authMiddleware, async (req, res) => {
-    const { agent_id, name, config: channelConfig, response_mode, response_interval, enabled } = req.body;
+    const { agent_id, name, token, allowed_users, response_mode, response_interval, enabled } = req.body;
     const result = await query(
       `UPDATE channels SET
         agent_id = COALESCE($1, agent_id), name = COALESCE($2, name),
-        config = COALESCE($3, config), response_mode = COALESCE($4, response_mode),
-        response_interval = COALESCE($5, response_interval), enabled = COALESCE($6, enabled)
-      WHERE id = $7 RETURNING *`,
-      [agent_id, name, channelConfig ? JSON.stringify(channelConfig) : null, response_mode, response_interval, enabled, req.params.id],
+        token = COALESCE($3, token), allowed_users = COALESCE($4, allowed_users),
+        response_mode = COALESCE($5, response_mode),
+        response_interval = COALESCE($6, response_interval), enabled = COALESCE($7, enabled)
+      WHERE id = $8 RETURNING *`,
+      [agent_id, name, token, allowed_users, response_mode, response_interval, enabled, req.params.id],
     );
     if (result.rowCount === 0) return res.status(404).json({ error: 'not found' });
     res.json(result.rows[0]);
@@ -496,8 +499,8 @@ export function createWebServer(agent) {
     try {
       const ch = await query('SELECT * FROM channels WHERE id = $1', [req.params.id]);
       const channel = ch.rows[0];
-      if (channel?.type === 'telegram' && channel.config?.token) {
-        fetch(`https://api.telegram.org/bot${channel.config.token}/deleteWebhook`)
+      if (channel?.type === 'telegram' && channel.token) {
+        fetch(`https://api.telegram.org/bot${channel.token}/deleteWebhook`)
           .then(r => r.json()).then(d => console.log(`[telegram] Webhook deleted for ${channel.name}:`, d.ok ? 'ok' : d.description))
           .catch(e => console.error(`[telegram] Failed to delete webhook:`, e.message));
       }

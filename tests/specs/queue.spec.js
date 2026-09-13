@@ -21,7 +21,7 @@ test.describe('queued_messages', () => {
   test('rows are cascaded when the parent channel is deleted', async ({ request }) => {
     const channelName = `pw-queue-chan-${Date.now()}`;
     const c = await request.post('/api/channels', {
-      data: { agent_id: agentId, type: 'telegram', name: channelName, config: { token: 'fake' }, response_mode: 'periodic', response_interval: '30m' },
+      data: { agent_id: agentId, type: 'telegram', name: channelName, token: 'fake', response_mode: 'periodic', response_interval: '30m' },
     });
     const channelId = (await c.json()).id;
 
@@ -46,7 +46,7 @@ test.describe('queued_messages', () => {
 
   test('CHECK: chat_id is NOT NULL', async ({ request }) => {
     const c = await request.post('/api/channels', {
-      data: { agent_id: agentId, type: 'telegram', name: `pw-queue-chan2-${Date.now()}`, config: { token: 'fake' }, response_mode: 'periodic', response_interval: '30m' },
+      data: { agent_id: agentId, type: 'telegram', name: `pw-queue-chan2-${Date.now()}`, token: 'fake', response_mode: 'periodic', response_interval: '30m' },
     });
     const channelId = (await c.json()).id;
 
