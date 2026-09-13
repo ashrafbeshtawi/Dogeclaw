@@ -12,7 +12,7 @@ import { getAgentMcpServerNames } from './db/mcpServers.js';
 import { hasActiveSearchEngine } from './db/searchEngines.js';
 import { getTimezone } from './db/settings.js';
 
-const MAX_ITERATIONS = 30;
+const MAX_ITERATIONS = 50;
 
 export class Agent {
   #registry;
@@ -230,8 +230,27 @@ export class Agent {
       });
     }
 
+    // Iteration cap reached mid-work. One final tool-less call turns the
+    // abort into a real status report — the raw cap marker used to land
+    // verbatim in the user's chat (e.g. long cron-driven news sweeps).
+    messages.push({
+      role: 'system',
+      content: 'Tool-call limit reached for this run — no more tool calls are possible. Reply now with a short summary of what you completed and what remains unfinished.',
+    });
+    let summary = null;
+    try {
+      const finalResponse = onEvent
+        ? await chatStream(messages, [], llmOpts, onEvent)
+        : await chat(messages, [], llmOpts);
+      summary = finalResponse.content || null;
+    } catch (err) {
+      console.error('[agent] tool-limit summary call failed:', err.message);
+    }
+
+    const icons = toolIcons(collectedToolCalls);
+    if (icons && onEvent) onEvent('content', `\n\n${icons}`);
     return {
-      content: appendToolIcons('(reached maximum tool call iterations)', collectedToolCalls),
+      content: appendToolIcons(summary || '(reached maximum tool call iterations)', collectedToolCalls),
       toolCalls: collectedToolCalls,
     };
   }
