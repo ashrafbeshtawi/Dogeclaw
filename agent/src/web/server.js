@@ -605,6 +605,10 @@ export function createWebServer(agent) {
         url, headers: headers || {},
       });
       res.json({ tools });
+      // Discover on an already-connected server doubles as a manual refresh:
+      // re-list every live server and re-register on change, so the agent
+      // sees the new tool set immediately instead of at the next reload.
+      mcpManager.refreshTools().catch(e => console.error('[mcp] tool refresh failed:', e.message));
     } catch (err) {
       res.status(400).json({ error: err.message });
     }

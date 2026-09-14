@@ -613,7 +613,7 @@
                 var r = await api('POST', '/api/mcp/discover', mcpFormDef());
                 if (r.error) { st.textContent = 'Failed: ' + r.error; return; }
                 var tools = r.tools || [];
-                st.textContent = 'Server offers ' + tools.length + ' tool(s) — all of them will be exposed to assigned agents.';
+                st.textContent = 'Server offers ' + tools.length + ' tool(s) — all exposed to assigned agents. Live tool registry refreshed.';
                 var el = document.getElementById('mcpToolList');
                 el.style.display = tools.length ? 'block' : 'none';
                 el.innerHTML = tools.map(function(t) {
