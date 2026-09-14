@@ -30,11 +30,18 @@ function withTimeout(promise, label) {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
+// A connected server can change its tool set at any time — the very reason
+// the per-tool allowlist was removed. Between admin reloads the registry is
+// kept honest by a slow periodic re-list (below) and by the admin UI's
+// Discover button, which triggers an explicit refresh.
+const REFRESH_INTERVAL_MS = 10 * 60 * 1000;
+
 export class McpManager {
   #registry;
   #clients = new Map();
   #tools = new Map(); // serverName -> tool[] (all tools the server offers)
   #descriptions = new Map(); // serverName -> admin-written description
+  #refreshTimer = null;
 
   constructor(registry) {
     this.#registry = registry;
@@ -42,6 +49,36 @@ export class McpManager {
 
   async start() {
     await this.reload();
+    this.#refreshTimer = setInterval(() => {
+      this.refreshTools().catch(e => console.error('[mcp] tool refresh failed:', e.message));
+    }, REFRESH_INTERVAL_MS);
+  }
+
+  // Re-list every connected server's tools and re-register the registry's
+  // mcp_ entries when anything changed. A transient failure keeps the last
+  // known set — a flaky server must not wipe its tools between reloads.
+  async refreshTools() {
+    let changed = false;
+    for (const [name, client] of this.#clients) {
+      try {
+        const { tools } = await withTimeout(client.listTools(), `listTools on ${name}`);
+        const fresh = tools || [];
+        if (JSON.stringify(fresh) !== JSON.stringify(this.#tools.get(name))) {
+          this.#tools.set(name, fresh);
+          changed = true;
+          console.log(`[mcp] ${name}: tool set changed — now ${fresh.length} tools`);
+        }
+      } catch (err) {
+        console.error(`[mcp] ${name}: tool refresh failed, keeping last known set: ${err.message}`);
+      }
+    }
+    if (changed) {
+      for (const name of this.#registry.list()) {
+        if (name.startsWith('mcp_')) this.#registry.unregister(name);
+      }
+      registerMcpTools(this.#registry, this);
+    }
+    return changed;
   }
 
   // Tear everything down and rebuild from the DB. Called at boot and after
@@ -115,6 +152,7 @@ export class McpManager {
   }
 
   async stop() {
+    if (this.#refreshTimer) clearInterval(this.#refreshTimer);
     for (const client of this.#clients.values()) {
       try { await client.close(); } catch {}
     }
