@@ -240,7 +240,7 @@ export function createWebServer(agent) {
         await appendMessage(sid, {
           role: 'assistant',
           content: finalContent,
-          thinking: fullThinking || null,
+          thinking: result.thinking || fullThinking || null,
           toolCalls: result.toolCalls?.length ? result.toolCalls : null,
         });
 

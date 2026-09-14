@@ -85,7 +85,14 @@ async function chatOpenAI(messages, tools, opts) {
   if (!res.ok) throw new Error(`OpenRouter ${res.status}: ${(await res.text()).slice(0, 200)}`);
 
   const choice = (await res.json()).choices?.[0]?.message;
-  return { role: 'assistant', content: choice?.content || '', tool_calls: parseOpenAIToolCalls(choice?.tool_calls) };
+  return {
+    role: 'assistant',
+    content: choice?.content || '',
+    // OpenRouter surfaces reasoning-model output in `reasoning` — capture it
+    // so it persists and renders like Ollama's `thinking`.
+    thinking: choice?.reasoning || undefined,
+    tool_calls: parseOpenAIToolCalls(choice?.tool_calls),
+  };
 }
 
 async function chatStreamOpenAI(messages, tools, opts, onEvent) {
@@ -99,12 +106,13 @@ async function chatStreamOpenAI(messages, tools, opts, onEvent) {
   });
   if (!res.ok) throw new Error(`OpenRouter ${res.status}: ${(await res.text()).slice(0, 200)}`);
 
-  let fullContent = '', toolCalls = [], currentIdx = -1;
+  let fullContent = '', fullThinking = '', toolCalls = [], currentIdx = -1;
   for await (const line of readLines(res)) {
     if (!line.startsWith('data: ') || line === 'data: [DONE]') continue;
     let chunk; try { chunk = JSON.parse(line.slice(6)); } catch { continue; }
     const delta = chunk.choices?.[0]?.delta;
     if (!delta) continue;
+    if (delta.reasoning) { fullThinking += delta.reasoning; onEvent?.('thinking', delta.reasoning); }
     if (delta.content) { fullContent += delta.content; onEvent?.('content', delta.content); }
     if (delta.tool_calls) {
       for (const tc of delta.tool_calls) {
@@ -116,7 +124,7 @@ async function chatStreamOpenAI(messages, tools, opts, onEvent) {
     }
   }
   const parsed = toolCalls.length ? toolCalls.map(tc => ({ function: { name: tc.function.name, arguments: JSON.parse(tc.function.arguments || '{}') } })) : undefined;
-  return { role: 'assistant', content: fullContent, tool_calls: parsed };
+  return { role: 'assistant', content: fullContent, thinking: fullThinking || undefined, tool_calls: parsed };
 }
 
 // ============================================================

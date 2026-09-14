@@ -142,7 +142,9 @@ export class Agent {
 
   /**
    * Run the agent loop.
-   * Returns { content, toolCalls } where toolCalls is an array of { name, args, result }
+   * Returns { content, thinking, toolCalls } — thinking is the model's
+   * reasoning accumulated across all rounds (null when the model emitted
+   * none), so callers can persist it regardless of streaming.
    *
    * When opts.triggerNote is set (cron-fired runs), no synthetic user message is
    * appended; instead the trigger is added as a system-role turn after history.
@@ -184,12 +186,14 @@ export class Agent {
       apiKey: mc.apiKey || null,
     };
     const collectedToolCalls = [];
+    let collectedThinking = '';
     let claimRetried = false;
 
     for (let i = 0; i < MAX_ITERATIONS; i++) {
       const response = onEvent
         ? await chatStream(messages, tools, llmOpts, onEvent)
         : await chat(messages, tools, llmOpts);
+      if (response.thinking) collectedThinking += response.thinking;
 
       if (!response.tool_calls || response.tool_calls.length === 0) {
         if (this.#isThoughtOnlyResponse(response)) {
@@ -214,6 +218,7 @@ export class Agent {
         if (icons && onEvent) onEvent('content', `\n\n${icons}`);
         return {
           content: appendToolIcons(response.content || '(no response)', collectedToolCalls),
+          thinking: collectedThinking || null,
           toolCalls: collectedToolCalls,
         };
       }
@@ -243,6 +248,7 @@ export class Agent {
         ? await chatStream(messages, [], llmOpts, onEvent)
         : await chat(messages, [], llmOpts);
       summary = finalResponse.content || null;
+      if (finalResponse.thinking) collectedThinking += finalResponse.thinking;
     } catch (err) {
       console.error('[agent] tool-limit summary call failed:', err.message);
     }
@@ -251,6 +257,7 @@ export class Agent {
     if (icons && onEvent) onEvent('content', `\n\n${icons}`);
     return {
       content: appendToolIcons(summary || '(reached maximum tool call iterations)', collectedToolCalls),
+      thinking: collectedThinking || null,
       toolCalls: collectedToolCalls,
     };
   }
