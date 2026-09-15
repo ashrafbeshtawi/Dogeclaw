@@ -75,6 +75,9 @@ function parseOpenAIToolCalls(tcs) {
 
 async function chatOpenAI(messages, tools, opts) {
   const body = { model: opts.model, messages: toOpenAIMessages(messages), stream: false };
+  // Hybrid models (Claude, Gemini, Qwen3, GPT-5) don't reason unless asked, and
+  // a model that doesn't reason returns no `reasoning` field to capture.
+  if (opts.think) body.reasoning = { enabled: true };
   if (tools.length > 0) body.tools = toOpenAITools(tools);
 
   const res = await fetch(`${opts.baseUrl}/api/v1/chat/completions`, {
@@ -97,6 +100,7 @@ async function chatOpenAI(messages, tools, opts) {
 
 async function chatStreamOpenAI(messages, tools, opts, onEvent) {
   const body = { model: opts.model, messages: toOpenAIMessages(messages), stream: true };
+  if (opts.think) body.reasoning = { enabled: true };
   if (tools.length > 0) body.tools = toOpenAITools(tools);
 
   const res = await fetch(`${opts.baseUrl}/api/v1/chat/completions`, {

@@ -35,6 +35,20 @@ test('non-streaming: no reasoning → no thinking field', async () => {
   } finally { restore(); }
 });
 
+test('think flag asks OpenRouter to reason; off sends no reasoning param', async () => {
+  const bodies = [];
+  const restore = stubFetch(async (_url, init) => {
+    bodies.push(JSON.parse(init.body));
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'hi' } }] }), { status: 200 });
+  });
+  try {
+    await chat([{ role: 'user', content: 'q' }], [], { ...OPTS, think: true });
+    await chat([{ role: 'user', content: 'q' }], [], { ...OPTS, think: false });
+    assert.deepEqual(bodies[0].reasoning, { enabled: true });
+    assert.equal('reasoning' in bodies[1], false);
+  } finally { restore(); }
+});
+
 test('streaming: delta.reasoning emits thinking events and accumulates', async () => {
   const sse = [
     'data: {"choices":[{"delta":{"reasoning":"thin"}}]}',
