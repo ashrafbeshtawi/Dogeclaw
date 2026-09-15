@@ -391,6 +391,7 @@ export class TelegramManager {
         await appendMessage(sessionId, {
           role: 'assistant',
           content: result.content,
+          thinking: result.thinking || null,
           toolCalls: result.toolCalls?.length ? result.toolCalls : null,
         });
 

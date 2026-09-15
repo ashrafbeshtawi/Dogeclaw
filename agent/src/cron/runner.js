@@ -179,6 +179,7 @@ export class CronRunner {
         await appendMessage(sessionId, {
           role: 'assistant',
           content,
+          thinking: result.thinking || null,
           toolCalls: result.toolCalls?.length ? result.toolCalls : null,
         });
 
