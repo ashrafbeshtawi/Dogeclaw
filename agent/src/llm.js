@@ -54,10 +54,27 @@ async function chatStreamOllama(messages, tools, opts, onEvent) {
 // OpenAI-compatible (OpenRouter)
 // ============================================================
 
+// The internal message shape is Ollama's — object-valued tool arguments and no
+// ids. OpenAI requires more on the way back in: every tool call needs an `id`
+// and an explicit `type`, its arguments must be a JSON *string*, and every tool
+// result must name the call it answers via `tool_call_id`. Sending the raw
+// internal shape makes strict upstream providers reject the whole request.
 function toOpenAIMessages(messages) {
   return messages.map(m => {
     const msg = { role: m.role, content: m.content || '' };
-    if (m.tool_calls) msg.tool_calls = m.tool_calls;
+    if (m.tool_calls) {
+      msg.tool_calls = m.tool_calls.map((tc, i) => ({
+        id: tc.id || `call_${i}`,
+        type: 'function',
+        function: {
+          name: tc.function.name,
+          arguments: typeof tc.function.arguments === 'string'
+            ? tc.function.arguments
+            : JSON.stringify(tc.function.arguments ?? {}),
+        },
+      }));
+    }
+    if (m.tool_call_id) msg.tool_call_id = m.tool_call_id;
     return msg;
   });
 }
@@ -66,9 +83,13 @@ function toOpenAITools(tools) {
   return tools.map(t => ({ type: 'function', function: t.function }));
 }
 
+// Keep the provider's id: it is the only thing tying the tool result we send
+// next round back to this call. Synthesize one if a provider omits it, so the
+// pairing still holds rather than failing validation later.
 function parseOpenAIToolCalls(tcs) {
   if (!tcs?.length) return undefined;
-  return tcs.map(tc => ({
+  return tcs.map((tc, i) => ({
+    id: tc.id || `call_${i}`,
     function: { name: tc.function.name, arguments: typeof tc.function.arguments === 'string' ? JSON.parse(tc.function.arguments) : tc.function.arguments },
   }));
 }
@@ -120,14 +141,17 @@ async function chatStreamOpenAI(messages, tools, opts, onEvent) {
     if (delta.content) { fullContent += delta.content; onEvent?.('content', delta.content); }
     if (delta.tool_calls) {
       for (const tc of delta.tool_calls) {
-        if (tc.index !== undefined && tc.index !== currentIdx) { currentIdx = tc.index; toolCalls.push({ function: { name: '', arguments: '' } }); }
+        if (tc.index !== undefined && tc.index !== currentIdx) { currentIdx = tc.index; toolCalls.push({ id: null, function: { name: '', arguments: '' } }); }
         const cur = toolCalls[toolCalls.length - 1];
+        // The id arrives on the first delta of a call and is absent from the
+        // rest, so take it once rather than concatenating it.
+        if (tc.id && !cur.id) cur.id = tc.id;
         if (tc.function?.name) cur.function.name += tc.function.name;
         if (tc.function?.arguments) cur.function.arguments += tc.function.arguments;
       }
     }
   }
-  const parsed = toolCalls.length ? toolCalls.map(tc => ({ function: { name: tc.function.name, arguments: JSON.parse(tc.function.arguments || '{}') } })) : undefined;
+  const parsed = toolCalls.length ? toolCalls.map((tc, i) => ({ id: tc.id || `call_${i}`, function: { name: tc.function.name, arguments: JSON.parse(tc.function.arguments || '{}') } })) : undefined;
   return { role: 'assistant', content: fullContent, thinking: fullThinking || undefined, tool_calls: parsed };
 }
 
