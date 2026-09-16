@@ -14,6 +14,7 @@ import {
   findActiveTelegramSession,
 } from '../db/sessions.js';
 import { withSessionLock } from '../lib/sessionLock.js';
+import { runWithRetry } from '../lib/retry.js';
 import { adminQuery } from '../db/pool.js';
 import { insertEventLog } from '../db/eventLogs.js';
 
@@ -107,6 +108,9 @@ export class CronRunner {
     let channelRow = null;
     const startedAt = Date.now();
     let assistantContent = '';
+    // 0 means the run never got past setup, so a failure there is
+    // distinguishable in the event log from one the model actually attempted.
+    let attempts = 0;
 
     console.log(`[cron] job ${jobId} input: ${job.prompt}`);
 
@@ -132,66 +136,83 @@ export class CronRunner {
         sessionId = job.session_id;
       }
 
-      await withSessionLock(sessionId, async () => {
-        await ensureSession(sessionId, {
-          agentId: job.agent_id,
-          agentName: agentRow.name,
-          source: isTelegram ? 'telegram' : 'web',
-          channelId: isTelegram ? job.channel_id : null,
-          channelName: channelRow?.name || null,
-          chatId: isTelegram ? String(job.chat_id) : null,
-        });
+      // Everything above is setup that fails the same way every time, so it
+      // stays outside the retry. From here the run depends on the model
+      // provider, which is where the transient failures live.
+      //
+      // ponytail: a retry re-runs the whole prompt, so tools the agent already
+      // called before the failure run again. Safe for the read-then-write jobs
+      // we have; if a job ever needs exactly-once tool execution, that needs
+      // idempotency keys on the tool layer, not a smarter retry here. The
+      // Telegram push is the last statement in the locked block and its own
+      // errors are swallowed, so a retry can never double-send a message.
+      await runWithRetry(async attempt => {
+        attempts = attempt;
+        await withSessionLock(sessionId, async () => {
+          await ensureSession(sessionId, {
+            agentId: job.agent_id,
+            agentName: agentRow.name,
+            source: isTelegram ? 'telegram' : 'web',
+            channelId: isTelegram ? job.channel_id : null,
+            channelName: channelRow?.name || null,
+            chatId: isTelegram ? String(job.chat_id) : null,
+          });
 
-        const triggerLines = [
-          'This is a scheduled run that you set up earlier.',
-          `Job id: ${job.id}.`,
-          ...(job.description ? [`Job description: ${job.description}.`] : []),
-          `Run number: ${job.run_count + 1}.`,
-          `Instruction: ${job.prompt}`,
-          'Respond directly to the user as if you initiated the message. Do not mention this trigger.',
-        ];
-        const triggerNote = triggerLines.join('\n');
+          const triggerLines = [
+            'This is a scheduled run that you set up earlier.',
+            `Job id: ${job.id}.`,
+            ...(job.description ? [`Job description: ${job.description}.`] : []),
+            `Run number: ${job.run_count + 1}.`,
+            `Instruction: ${job.prompt}`,
+            'Respond directly to the user as if you initiated the message. Do not mention this trigger.',
+          ];
+          const triggerNote = triggerLines.join('\n');
 
-        const { messages: history } = await loadSession(sessionId);
+          const { messages: history } = await loadSession(sessionId);
 
-        const modelConfig = {
-          base_url: agentRow.base_url,
-          model_id: agentRow.model_id,
-          think: agentRow.think,
-          accepts: agentRow.accepts || ['text'],
-          provider: agentRow.provider || 'ollama',
-          apiKey: agentRow.api_key,
-        };
+          const modelConfig = {
+            base_url: agentRow.base_url,
+            model_id: agentRow.model_id,
+            think: agentRow.think,
+            accepts: agentRow.accepts || ['text'],
+            provider: agentRow.provider || 'ollama',
+            apiKey: agentRow.api_key,
+          };
 
-        const result = await this.#agent.run('', history, {
-          agentId: job.agent_id,
-          agentName: agentRow.name,
-          channelId: isTelegram ? job.channel_id : null,
-          chatId: isTelegram ? String(job.chat_id) : null,
-          sessionId,
-          systemPrompt: agentRow.system_prompt,
-          modelConfig,
-          triggerNote,
-        });
+          const result = await this.#agent.run('', history, {
+            agentId: job.agent_id,
+            agentName: agentRow.name,
+            channelId: isTelegram ? job.channel_id : null,
+            chatId: isTelegram ? String(job.chat_id) : null,
+            sessionId,
+            systemPrompt: agentRow.system_prompt,
+            modelConfig,
+            triggerNote,
+          });
 
-        const content = result.content || '';
-        assistantContent = content;
-        await appendMessage(sessionId, {
-          role: 'assistant',
-          content,
-          thinking: result.thinking || null,
-          toolCalls: result.toolCalls?.length ? result.toolCalls : null,
-        });
+          const content = result.content || '';
+          assistantContent = content;
+          await appendMessage(sessionId, {
+            role: 'assistant',
+            content,
+            thinking: result.thinking || null,
+            toolCalls: result.toolCalls?.length ? result.toolCalls : null,
+          });
 
-        if (isTelegram && this.#telegramManager && content) {
-          try {
-            await this.#telegramManager.sendMessageVia(job.channel_id, job.chat_id, content);
-          } catch (err) {
-            console.error(`[cron] telegram push for job ${job.id}:`, err.message);
+          if (isTelegram && this.#telegramManager && content) {
+            try {
+              await this.#telegramManager.sendMessageVia(job.channel_id, job.chat_id, content);
+            } catch (err) {
+              console.error(`[cron] telegram push for job ${job.id}:`, err.message);
+            }
           }
-        }
+        });
+      }, {
+        onRetry: (err, attempt) =>
+          console.warn(`[cron] job ${jobId} attempt ${attempt} failed: ${err.message} — retrying`),
       });
 
+      if (attempts > 1) console.log(`[cron] job ${jobId} succeeded on attempt ${attempts}`);
       await recordRun(job.id, { status: 'ok', error: null });
       console.log(`[cron] job ${jobId} output: ${assistantContent}`);
       await insertEventLog({
@@ -207,6 +228,7 @@ export class CronRunner {
           channel_id: isTelegram ? job.channel_id : null,
           chat_id: isTelegram ? String(job.chat_id) : null,
           one_shot: isOneShot,
+          attempts,
         },
       }).catch(err => console.error(`[cron] event log insert failed:`, err.message));
     } catch (err) {
@@ -226,6 +248,7 @@ export class CronRunner {
           channel_id: isTelegram ? job.channel_id : null,
           chat_id: isTelegram ? String(job.chat_id) : null,
           one_shot: isOneShot,
+          attempts,
         },
       }).catch(logErr => console.error(`[cron] event log insert failed:`, logErr.message));
     } finally {
