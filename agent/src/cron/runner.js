@@ -14,6 +14,7 @@ import {
   findActiveTelegramSession,
 } from '../db/sessions.js';
 import { withSessionLock } from '../lib/sessionLock.js';
+import { loadAgentRuntime } from '../db/agentRuntime.js';
 import { adminQuery } from '../db/pool.js';
 import { insertEventLog } from '../db/eventLogs.js';
 
@@ -111,16 +112,10 @@ export class CronRunner {
     console.log(`[cron] job ${jobId} input: ${job.prompt}`);
 
     try {
-      const aRes = await adminQuery(
-        `SELECT a.id, a.name, a.system_prompt,
-                m.base_url, m.model_id, m.think, m.accepts, m.provider, m.api_key
-           FROM agents a LEFT JOIN models m ON a.model_id = m.id
-          WHERE a.id = $1`,
-        [job.agent_id],
-      );
-      const agentRow = aRes.rows[0];
-      if (!agentRow) throw new Error(`agent ${job.agent_id} not found`);
-      if (!agentRow.model_id) throw new Error(`agent ${job.agent_id} has no model assigned`);
+      const runtime = await loadAgentRuntime(job.agent_id);
+      if (!runtime) throw new Error(`agent ${job.agent_id} not found`);
+      if (!runtime.modelConfig) throw new Error(`agent ${job.agent_id} has no model assigned`);
+      const agentRow = runtime.agent;
 
       if (isTelegram) {
         const cRes = await adminQuery('SELECT id, name FROM channels WHERE id = $1', [job.channel_id]);
@@ -154,15 +149,6 @@ export class CronRunner {
 
         const { messages: history } = await loadSession(sessionId);
 
-        const modelConfig = {
-          base_url: agentRow.base_url,
-          model_id: agentRow.model_id,
-          think: agentRow.think,
-          accepts: agentRow.accepts || ['text'],
-          provider: agentRow.provider || 'ollama',
-          apiKey: agentRow.api_key,
-        };
-
         const result = await this.#agent.run('', history, {
           agentId: job.agent_id,
           agentName: agentRow.name,
@@ -170,7 +156,7 @@ export class CronRunner {
           chatId: isTelegram ? String(job.chat_id) : null,
           sessionId,
           systemPrompt: agentRow.system_prompt,
-          modelConfig,
+          modelConfig: runtime.modelConfig,
           triggerNote,
         });
 

@@ -11,6 +11,7 @@ import { listJobs, getJob, deleteJob } from '../db/crons.js';
 import { enqueue as enqueueMessage, claimBatch } from '../db/queue.js';
 import { reloadCronJobs } from '../cron/runner.js';
 import { withSessionLock } from '../lib/sessionLock.js';
+import { toModelConfig } from '../db/agentRuntime.js';
 import config from '../config.js';
 
 const MAX_MSG_LEN = 4096;
@@ -341,14 +342,9 @@ export class TelegramManager {
     const sessionId = await this.#resolveSessionId(channel, chatId);
     await ensureSession(sessionId, this.#sessionMeta(channel, chatId));
 
-    const modelConfig = {
-      base_url: channel.base_url,
-      model_id: channel.model_id,
-      think: channel.think,
-      accepts: channel.accepts || ['text'],
-      provider: channel.provider || 'ollama',
-      apiKey: channel.api_key,
-    };
+    // Built from the channel row, not the agent, so a model swap picked up by
+    // reload() takes effect on the next message without restarting the bot.
+    const modelConfig = toModelConfig(channel);
 
     await withSessionLock(sessionId, async () => {
       // Load history BEFORE persisting the new user message so agent.run
@@ -471,7 +467,7 @@ export class TelegramManager {
           channelId: channel.id,
           chatId: String(chatId),
           systemPrompt: channel.system_prompt,
-          modelConfig: { base_url: channel.base_url, model_id: channel.model_id, think: channel.think, accepts: channel.accepts || ['text'], provider: channel.provider || 'ollama', apiKey: channel.api_key },
+          modelConfig: toModelConfig(channel),
           systemNote: `Processing ${messages.length} queued message(s)`,
         });
         await sendLong(bot, chatId, result.content);
