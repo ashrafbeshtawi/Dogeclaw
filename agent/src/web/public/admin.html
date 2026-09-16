@@ -117,19 +117,32 @@
 
         <!-- Cron Jobs -->
         <div class="section" id="tab-crons">
-            <div class="flex items-center gap-3 mb-4">
-                <h2 class="text-base font-bold">Cron Jobs</h2>
+            <div class="flex items-center gap-3 mb-4" style="flex-wrap:wrap">
+                <h2 class="text-base font-bold" style="white-space:nowrap">Cron Jobs</h2>
                 <button class="btn btn-primary btn-sm" onclick="openCronModal()">+ New Job</button>
                 <div class="flex gap-1" id="cronViewTabs">
                     <button class="btn btn-xs" data-cron-view="all" onclick="setCronView('all')">All</button>
                     <button class="btn btn-xs" data-cron-view="active" onclick="setCronView('active')">Active</button>
                     <button class="btn btn-xs" data-cron-view="inactive" onclick="setCronView('inactive')">Inactive</button>
+                    <button class="btn btn-xs" data-cron-view="failing" onclick="setCronView('failing')">Failing</button>
                 </div>
-                <input type="text" id="cronFilterInput" placeholder="Filter agent, target, prompt…" class="input input-sm w-56 ml-auto" oninput="renderCrons()">
+                <div class="flex items-center gap-3 ml-auto">
+                    <select id="cronAgentFilter" onchange="renderCrons()" class="select select-sm w-40"></select>
+                    <input type="text" id="cronFilterInput" placeholder="Filter agent, target, prompt…" class="input input-sm w-56" oninput="renderCrons()">
+                </div>
             </div>
             <div class="overflow-x-auto rounded-2xl border border-white/5 bg-base-100">
                 <table class="table table-sm">
-                    <thead><tr><th>ID</th><th>Agent</th><th>Target</th><th>Schedule</th><th>Prompt</th><th>Last run</th><th>Enabled</th><th></th></tr></thead>
+                    <thead><tr style="cursor:pointer;user-select:none">
+                        <th class="cron-sort" data-cron-sort="id" data-label="ID" onclick="setCronSort('id')">ID</th>
+                        <th class="cron-sort" data-cron-sort="agent" data-label="Agent" onclick="setCronSort('agent')">Agent</th>
+                        <th class="cron-sort" data-cron-sort="target" data-label="Target" onclick="setCronSort('target')">Target</th>
+                        <th class="cron-sort" data-cron-sort="schedule" data-label="Schedule" onclick="setCronSort('schedule')">Schedule</th>
+                        <th class="cron-sort" data-cron-sort="prompt" data-label="Prompt" onclick="setCronSort('prompt')">Prompt</th>
+                        <th class="cron-sort" data-cron-sort="last" data-label="Last run" onclick="setCronSort('last')">Last run</th>
+                        <th class="cron-sort" data-cron-sort="enabled" data-label="Enabled" onclick="setCronSort('enabled')">Enabled</th>
+                        <th style="cursor:default"></th>
+                    </tr></thead>
                     <tbody id="cronsTable"></tbody>
                 </table>
             </div>
@@ -927,7 +940,17 @@
         // View state for the crons table: sub-tab (all/active/inactive) and
         // free-text filter. Both are pure client-side over the loaded list.
         var cronView = 'all';
+        // Default order reproduces the old fixed sort: enabled first, id ascending.
+        var cronSort = { key: 'enabled', dir: 'desc' };
         function setCronView(v) { cronView = v; renderCrons(); }
+
+        function setCronSort(key) {
+            // Same column flips direction; a new column opens on the direction
+            // that is useful first — newest run and enabled-on at the top.
+            if (cronSort.key === key) cronSort.dir = cronSort.dir === 'asc' ? 'desc' : 'asc';
+            else cronSort = { key: key, dir: (key === 'last' || key === 'enabled') ? 'desc' : 'asc' };
+            renderCrons();
+        }
 
         function cronMatchesFilter(j, q) {
             if (!q) return true;
@@ -936,23 +959,83 @@
             return hay.indexOf(q) !== -1;
         }
 
+        // A job counts as failing once it has actually run and the last run
+        // did not report ok. Never-run jobs are not failures.
+        function cronFailed(j) { return !!j.last_run_at && j.last_status !== 'ok'; }
+
+        function cronTargetKey(j) {
+            if (j.chat_id) return 'tg:' + (j.channel_name || '') + '/' + j.chat_id;
+            if (j.session_id) return 'web:' + j.session_id;
+            return '';
+        }
+
+        function cronSortValue(j, key) {
+            if (key === 'id') return j.id;
+            if (key === 'agent') return (j.agent_name || '').toLowerCase();
+            if (key === 'target') return cronTargetKey(j).toLowerCase();
+            if (key === 'schedule') return j.expression || j.run_at || '';
+            if (key === 'prompt') return (j.prompt || '').toLowerCase();
+            if (key === 'last') return j.last_run_at ? Date.parse(j.last_run_at) : 0;
+            if (key === 'enabled') return j.enabled ? 1 : 0;
+            return 0;
+        }
+
+        // Rebuilt from the loaded jobs each render so the list tracks reality;
+        // the current pick survives unless its agent no longer has any job.
+        function syncCronAgentOptions(sel) {
+            var seen = {}, opts = [];
+            crons.forEach(function(j) {
+                if (j.agent_id == null || seen[j.agent_id]) return;
+                seen[j.agent_id] = true;
+                opts.push({ id: j.agent_id, name: j.agent_name || ('#' + j.agent_id) });
+            });
+            opts.sort(function(a, b) { return a.name.localeCompare(b.name); });
+            var html = '<option value="">All agents</option>' + opts.map(function(o) {
+                return '<option value="' + esc(String(o.id)) + '">' + esc(o.name) + '</option>';
+            }).join('');
+            if (sel.innerHTML === html) return;
+            var cur = sel.value;
+            sel.innerHTML = html;
+            sel.value = cur;
+        }
+
         function renderCrons() {
             var q = (document.getElementById('cronFilterInput').value || '').trim().toLowerCase();
+            var agentSel = document.getElementById('cronAgentFilter');
+            syncCronAgentOptions(agentSel);
+            var agentPick = agentSel.value;
+
             var activeCount = crons.filter(function(j){ return j.enabled; }).length;
-            var counts = { all: crons.length, active: activeCount, inactive: crons.length - activeCount };
+            var counts = {
+                all: crons.length,
+                active: activeCount,
+                inactive: crons.length - activeCount,
+                failing: crons.filter(cronFailed).length,
+            };
             document.querySelectorAll('#cronViewTabs button').forEach(function(b) {
                 var v = b.dataset.cronView;
                 b.textContent = v.charAt(0).toUpperCase() + v.slice(1) + ' (' + counts[v] + ')';
                 b.className = 'btn btn-xs ' + (v === cronView ? 'btn-primary' : 'btn-ghost border border-white/10');
             });
+            document.querySelectorAll('#tab-crons th.cron-sort').forEach(function(th) {
+                var arrow = th.dataset.cronSort === cronSort.key ? (cronSort.dir === 'asc' ? ' ▲' : ' ▼') : '';
+                th.textContent = th.dataset.label + arrow;
+            });
 
             var shown = crons.filter(function(j) {
                 if (cronView === 'active' && !j.enabled) return false;
                 if (cronView === 'inactive' && j.enabled) return false;
+                if (cronView === 'failing' && !cronFailed(j)) return false;
+                if (agentPick && String(j.agent_id) !== agentPick) return false;
                 return cronMatchesFilter(j, q);
             });
-            // Active jobs first (relevant in the All view), stable id order within.
-            shown.sort(function(a, b) { return (b.enabled - a.enabled) || (a.id - b.id); });
+            var dir = cronSort.dir === 'asc' ? 1 : -1;
+            shown.sort(function(a, b) {
+                var av = cronSortValue(a, cronSort.key), bv = cronSortValue(b, cronSort.key);
+                if (av < bv) return -dir;
+                if (av > bv) return dir;
+                return a.id - b.id;
+            });
 
             if (!shown.length) {
                 document.getElementById('cronsTable').innerHTML =
