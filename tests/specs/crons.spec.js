@@ -225,6 +225,63 @@ test.describe('cron jobs tab', () => {
     expect(list2.jobs.find(j => j.id === jobId)).toBeFalsy();
   });
 
+  test('failing tab, agent dropdown and column sort narrow and reorder the table', async ({ page, request }) => {
+    const okPrompt = await uniqueName('pw-cron-ok');
+    const badPrompt = await uniqueName('pw-cron-bad');
+    const otherPrompt = await uniqueName('pw-cron-other');
+
+    // A second agent so the agent dropdown has something to discriminate.
+    const a2 = await request.post('/api/agents', { data: { name: await uniqueName('pw-cron-agent2'), system_prompt: '' } });
+    const agent2Id = (await a2.json()).id;
+
+    const mk = async (prompt, agent) => (await (await request.post('/api/cron-jobs', {
+      data: { agent_id: agent, channel_id: channelId, chat_id: '1', expression: '*/5 * * * *', prompt, enabled: true },
+    })).json()).id;
+
+    const okId = await mk(okPrompt, agentId);
+    const badId = await mk(badPrompt, agentId);
+    const otherId = await mk(otherPrompt, agent2Id);
+
+    // Only the API can't express a run outcome, so stamp it directly.
+    psql(`UPDATE cron_jobs SET last_run_at = NOW(), last_status = 'error' WHERE id = ${badId};`);
+    psql(`UPDATE cron_jobs SET last_run_at = NOW(), last_status = 'ok'    WHERE id = ${okId};`);
+
+    try {
+      await openAdminTab(page, 'crons');
+
+      // Failing view: only the errored job, and a job that never ran is not a failure
+      await page.click('[data-cron-view="failing"]');
+      await expect(page.locator('#cronsTable tr', { hasText: badPrompt })).toHaveCount(1);
+      await expect(page.locator('#cronsTable tr', { hasText: okPrompt })).toHaveCount(0);
+      await expect(page.locator('#cronsTable tr', { hasText: otherPrompt })).toHaveCount(0);
+
+      // Agent dropdown filters exactly, independent of the text box
+      await page.click('[data-cron-view="all"]');
+      await page.selectOption('#cronAgentFilter', String(agent2Id));
+      await expect(page.locator('#cronsTable tr', { hasText: otherPrompt })).toHaveCount(1);
+      await expect(page.locator('#cronsTable tr', { hasText: badPrompt })).toHaveCount(0);
+      await page.selectOption('#cronAgentFilter', '');
+
+      // Sorting by ID: ascending puts the older job first, clicking again flips it
+      await page.fill('#cronFilterInput', 'pw-cron-');
+      await page.click('th[data-cron-sort="id"]');
+      await expect(page.locator('th[data-cron-sort="id"]')).toContainText('▲');
+      let rows = await page.locator('#cronsTable tr').allTextContents();
+      expect(rows.findIndex(t => t.includes(okPrompt)))
+        .toBeLessThan(rows.findIndex(t => t.includes(otherPrompt)));
+
+      await page.click('th[data-cron-sort="id"]');
+      await expect(page.locator('th[data-cron-sort="id"]')).toContainText('▼');
+      rows = await page.locator('#cronsTable tr').allTextContents();
+      expect(rows.findIndex(t => t.includes(otherPrompt)))
+        .toBeLessThan(rows.findIndex(t => t.includes(okPrompt)));
+      await page.fill('#cronFilterInput', '');
+    } finally {
+      for (const id of [okId, badId, otherId]) await request.delete(`/api/cron-jobs/${id}`);
+      await request.delete(`/api/agents/${agent2Id}`);
+    }
+  });
+
   test('FK cascade: deleting a channel drops attached crons', async ({ request }) => {
     // Build a disposable channel + cron
     const tmpChannelName = `pw-cron-tmpchan-${Date.now()}`;
