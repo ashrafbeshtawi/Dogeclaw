@@ -136,7 +136,10 @@ export class Agent {
       const resultContent = resultStr.length > 12000
         ? `${resultStr.slice(0, 12000)}\n…[tool result truncated: showing 12000 of ${resultStr.length} chars — the data continues beyond this point]`
         : resultStr;
-      messages.push({ role: 'tool', content: resultContent, _toolName: call.function.name });
+      // tool_call_id pairs this result with the call that produced it — the
+      // OpenAI-compatible providers reject a tool message without it. Ollama
+      // and Gemini ignore the field; their serializers never read it.
+      messages.push({ role: 'tool', content: resultContent, tool_call_id: call.id, _toolName: call.function.name });
     }
   }
 
