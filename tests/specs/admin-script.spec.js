@@ -5,15 +5,60 @@
 const { test, expect } = require('@playwright/test');
 
 test.describe('admin script extraction', () => {
-  test('admin.js is served and admin.html carries no inline logic', async ({ page, request }) => {
-    const js = await request.get('/static/admin.js');
-    expect(js.ok()).toBeTruthy();
-    expect((await js.text()).length).toBeGreaterThan(1000);
+  const MODULES = ['main', 'store', 'models', 'agents', 'skills', 'channels', 'mcp', 'search', 'crons', 'events', 'settings'];
 
+  test('admin.html carries no inline logic and loads the module entry', async ({ request }) => {
     const html = await (await request.get('/admin')).text();
-    expect(html).toContain('<script src="/static/admin.js"></script>');
+    expect(html).toContain('<script type="module" src="/static/admin/main.js"></script>');
     // no <script> with a body — the only script tag is the src one
     expect(html).not.toMatch(/<script>[\s\S]*?<\/script>/);
+  });
+
+  for (const name of MODULES) {
+    test(`admin/${name}.js is served`, async ({ request }) => {
+      const res = await request.get(`/static/admin/${name}.js`);
+      expect(res.ok()).toBeTruthy();
+      expect((await res.text()).length).toBeGreaterThan(50);
+    });
+  }
+
+  test('no module is oversized', async ({ request }) => {
+    // The point of the split: the old single script was 810 lines. If one of
+    // these creeps back past ~250 it has become the thing we broke up.
+    for (const name of MODULES) {
+      const body = await (await request.get(`/static/admin/${name}.js`)).text();
+      const lines = body.split('\n').length;
+      expect(lines, `admin/${name}.js is ${lines} lines`).toBeLessThan(250);
+    }
+  });
+
+  test('the page loads with no console errors and boots its state', async ({ page }) => {
+    // A module that fails to parse or resolve an import dies silently as far
+    // as the DOM is concerned — the tab just never renders. Catch it directly.
+    const errors = [];
+    page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
+    page.on('pageerror', e => errors.push(e.message));
+
+    await page.goto('/admin');
+    await page.waitForFunction(() => window.state && Array.isArray(window.state.models));
+    expect(errors).toEqual([]);
+  });
+
+  test('every inline handler the markup calls is reachable in global scope', async ({ page, request }) => {
+    // Module top-level functions are NOT globals. Each one referenced from an
+    // onclick/onchange attribute has to be republished on window, or the
+    // button silently does nothing.
+    const html = await (await request.get('/admin')).text();
+    const fromMarkup = [...html.matchAll(/on(?:click|change|input)="([a-zA-Z_][\w]*)\s*\(/g)].map(m => m[1]);
+    expect(fromMarkup.length).toBeGreaterThan(20);
+
+    await page.goto('/admin');
+    await page.waitForFunction(() => !!window.showTab);
+    const missing = await page.evaluate(
+      names => names.filter(n => typeof window[n] !== 'function'),
+      [...new Set(fromMarkup)],
+    );
+    expect(missing).toEqual([]);
   });
 
   test('cronFailed counts only jobs that ran and did not report ok', async ({ page }) => {
