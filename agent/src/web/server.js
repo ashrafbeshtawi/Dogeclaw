@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import config from '../config.js';
 import { adminQuery as query } from '../db/pool.js';
+import { loadAgentRuntime } from '../db/agentRuntime.js';
 import {
   loadSession,
   ensureSession,
@@ -156,27 +157,14 @@ export function createWebServer(agent) {
     const aid = agentId || existing.agentId;
     if (!aid) return res.status(400).json({ error: 'No agent selected. Create an agent in the admin UI first.' });
 
-    let agentConfig = null;
-    let modelConfig = null;
+    let runtime = null;
     try {
-      const result = await query(
-        `SELECT a.*, m.base_url, m.model_id as ollama_model, m.think, m.accepts, m.provider, m.api_key
-         FROM agents a LEFT JOIN models m ON a.model_id = m.id WHERE a.id = $1`, [aid]);
-      agentConfig = result.rows[0];
-      if (agentConfig) {
-        modelConfig = {
-          base_url: agentConfig.base_url,
-          model_id: agentConfig.ollama_model,
-          think: agentConfig.think,
-          accepts: agentConfig.accepts || ['text'],
-          provider: agentConfig.provider || 'ollama',
-          apiKey: agentConfig.api_key,
-        };
-      }
+      runtime = await loadAgentRuntime(aid);
     } catch {}
 
-    if (!agentConfig) return res.status(404).json({ error: 'Agent not found.' });
-    if (!modelConfig?.model_id) return res.status(400).json({ error: 'This agent has no model assigned. Configure it in the admin UI.' });
+    if (!runtime) return res.status(404).json({ error: 'Agent not found.' });
+    const { agent: agentConfig, modelConfig } = runtime;
+    if (!modelConfig) return res.status(400).json({ error: 'This agent has no model assigned. Configure it in the admin UI.' });
 
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
