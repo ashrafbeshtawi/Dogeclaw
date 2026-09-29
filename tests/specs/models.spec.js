@@ -49,3 +49,28 @@ test.describe('models tab', () => {
     await expect(page.locator('#apiKeyRow')).toBeHidden();
   });
 });
+
+// API-level: what the JSON error middleware turns a Postgres constraint
+// violation into. Before it existed these came back as an HTML 500 that the
+// admin UI's api() helper could not parse.
+test.describe('models API errors', () => {
+  test('duplicate name is a 409 with a JSON reason', async ({ request }) => {
+    const name = await uniqueName('pw-model-dup');
+    const first = await request.post('/api/models', { data: { name, model_id: 'gemma3:1b' } });
+    expect(first.ok()).toBeTruthy();
+    const { id } = await first.json();
+    try {
+      const second = await request.post('/api/models', { data: { name, model_id: 'gemma3:1b' } });
+      expect(second.status()).toBe(409);
+      expect((await second.json()).error).toContain('already exists');
+    } finally {
+      await request.delete(`/api/models/${id}`);
+    }
+  });
+
+  test('non-numeric id is a 400, not an HTML 500', async ({ request }) => {
+    const r = await request.delete('/api/models/not-a-number');
+    expect(r.status()).toBe(400);
+    expect(r.headers()['content-type']).toContain('application/json');
+  });
+});
