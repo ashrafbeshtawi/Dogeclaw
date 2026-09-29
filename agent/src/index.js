@@ -1,3 +1,6 @@
+// Must stay the first import: the Sentry SDK hooks express/pg/http as they load.
+import './instrument.js';
+import * as Sentry from '@sentry/node';
 import { mkdir } from 'node:fs/promises';
 import config from './config.js';
 import { shutdown as shutdownPools } from './db/pool.js';
@@ -83,6 +86,11 @@ async function main() {
   const eventLogCleanup = new EventLogCleanup();
   await eventLogCleanup.start();
 
+  // Report errors thrown in request handlers. Mounted after every route
+  // (telegram.start() adds webhook routes after createWebServer()) so the
+  // Express error middleware sits behind all of them.
+  Sentry.setupExpressErrorHandler(app);
+
   // Start HTTP server
   app.listen(config.web.port, '0.0.0.0', () => {
     console.log(`[dogeclaw] Web UI at http://0.0.0.0:${config.web.port}`);
@@ -104,7 +112,9 @@ async function main() {
   process.on('SIGINT', shutdown);
 }
 
-main().catch(err => {
+main().catch(async err => {
   console.error('[dogeclaw] Fatal:', err);
+  Sentry.captureException(err);
+  await Sentry.flush(2000);
   process.exit(1);
 });

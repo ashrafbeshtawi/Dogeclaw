@@ -112,6 +112,8 @@ services:
       # Optional: Telegram in prod (set to 'webhook' + provide a public URL)
       DOGECLAW_TELEGRAM_MODE: polling
       DOGECLAW_WEBHOOK_URL: ""
+      # Optional: error reporting to a Sentry-compatible project (GlitchTip)
+      SENTRY_DSN: ""
     ports:
       - "3000:3000"
     depends_on:
@@ -151,6 +153,7 @@ The `dogeclaw` Postgres role is created with a default, well-known password (`do
 | `DOGECLAW_OLLAMA_URL` | no | — | Base URL of an Ollama instance for local models |
 | `DOGECLAW_TELEGRAM_MODE` | no | `polling` | `polling` or `webhook` |
 | `DOGECLAW_WEBHOOK_URL` | no | — | Public base URL when using `webhook` mode |
+| `SENTRY_DSN` | no | — | DSN of a Sentry-compatible project (e.g. GlitchTip); blank disables error reporting |
 
 Model API keys (OpenRouter, Google Gemini, etc.) are configured per-model **at runtime via the admin UI**, not via env vars.
 
