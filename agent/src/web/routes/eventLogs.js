@@ -2,6 +2,7 @@ import express from 'express';
 import { adminQuery as query } from '../../db/pool.js';
 import { listEventLogs, getEventLog, deleteEventLog as deleteEventLogRow, deleteAllEventLogs, deleteEventLogsOlderThan, EVENT_KINDS } from '../../db/eventLogs.js';
 
+// Mounted under /api behind authMiddleware in server.js; no per-route guards needed.
 export function eventLogsRoutes() {
   const router = express.Router();
 

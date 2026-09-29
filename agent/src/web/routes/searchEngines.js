@@ -2,6 +2,7 @@ import express from 'express';
 import { listEngines as listSearchEngines, createEngine as createSearchEngine, updateEngine as updateSearchEngine, deleteEngine as deleteSearchEngine, reorderEngines as reorderSearchEngines } from '../../db/searchEngines.js';
 import { PROVIDERS as SEARCH_PROVIDERS } from '../../lib/searchProviders.js';
 
+// Mounted under /api behind authMiddleware in server.js; no per-route guards needed.
 export function searchEnginesRoutes() {
   const router = express.Router();
 

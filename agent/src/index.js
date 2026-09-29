@@ -12,6 +12,7 @@ import { EventLogCleanup } from './cron/logCleanup.js';
 import { TelegramManager } from './channels/telegram.js';
 import { McpManager } from './mcp/client.js';
 import { createWebServer, setTelegramManager, setMcpManager } from './web/server.js';
+import { jsonErrorHandler } from './web/errorHandler.js';
 import { importLegacyData } from './migrate/importLegacy.js';
 
 import { register as registerExec } from './tools/exec.js';
@@ -86,10 +87,11 @@ async function main() {
   const eventLogCleanup = new EventLogCleanup();
   await eventLogCleanup.start();
 
-  // Report errors thrown in request handlers. Mounted after every route
-  // (telegram.start() adds webhook routes after createWebServer()) so the
-  // Express error middleware sits behind all of them.
+  // Error middleware, mounted after every route (telegram.start() adds webhook
+  // routes after createWebServer()) so it sits behind all of them. Sentry first:
+  // it reports and passes the error on; the JSON handler then answers it.
   Sentry.setupExpressErrorHandler(app);
+  app.use(jsonErrorHandler);
 
   // Start HTTP server
   app.listen(config.web.port, '0.0.0.0', () => {

@@ -2,6 +2,7 @@ import express from 'express';
 import { listJobs as listCronJobs, getJob as getCronJob, createJob as createCronJob, updateJob as updateCronJob, deleteJob as deleteCronJob } from '../../db/crons.js';
 import { reloadCronJobs } from '../../cron/runner.js';
 
+// Mounted under /api behind authMiddleware in server.js; no per-route guards needed.
 export function cronsRoutes() {
   const router = express.Router();
 

@@ -2,6 +2,7 @@ import express from 'express';
 import { listServers as listMcpServers, createServer as createMcpServer, updateServer as updateMcpServer, deleteServer as deleteMcpServer, setServerAgents as setMcpServerAgents } from '../../db/mcpServers.js';
 import { getMcpManager } from '../managers.js';
 
+// Mounted under /api behind authMiddleware in server.js; no per-route guards needed.
 export function mcpRoutes() {
   const router = express.Router();
 

@@ -3,6 +3,7 @@ import { adminQuery as query } from '../../db/pool.js';
 import { reloadCronJobs } from '../../cron/runner.js';
 import { reloadTelegram } from '../managers.js';
 
+// Mounted under /api behind authMiddleware in server.js; no per-route guards needed.
 export function agentsRoutes() {
   const router = express.Router();
 

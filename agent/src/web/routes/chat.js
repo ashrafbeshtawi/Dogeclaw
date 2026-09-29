@@ -4,6 +4,7 @@ import { loadSession, ensureSession, appendMessage } from '../../db/sessions.js'
 import { withSessionLock } from '../../lib/sessionLock.js';
 import { randomUUID } from 'node:crypto';
 
+// Mounted under /api behind authMiddleware in server.js; no per-route guards needed.
 export function chatRoutes(agent) {
   const router = express.Router();
 

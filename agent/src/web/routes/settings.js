@@ -2,6 +2,7 @@ import express from 'express';
 import { reloadCronJobs } from '../../cron/runner.js';
 import { getAllSettings, setSetting } from '../../db/settings.js';
 
+// Mounted under /api behind authMiddleware in server.js; no per-route guards needed.
 export function settingsRoutes() {
   const router = express.Router();
 

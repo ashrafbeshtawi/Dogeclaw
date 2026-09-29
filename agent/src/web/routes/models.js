@@ -2,6 +2,7 @@ import express from 'express';
 import { adminQuery as query } from '../../db/pool.js';
 import { reloadTelegram } from '../managers.js';
 
+// Mounted under /api behind authMiddleware in server.js; no per-route guards needed.
 export function modelsRoutes() {
   const router = express.Router();
 

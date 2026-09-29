@@ -2,8 +2,9 @@ import express from 'express';
 import { adminQuery as query } from '../../db/pool.js';
 import { reloadCronJobs } from '../../cron/runner.js';
 import { BOT_COMMANDS } from '../../channels/telegram.js';
-import { getTelegramManager } from '../managers.js';
+import { getTelegramManager, reloadTelegram } from '../managers.js';
 
+// Mounted under /api behind authMiddleware in server.js; no per-route guards needed.
 export function channelsRoutes() {
   const router = express.Router();
 
@@ -51,7 +52,7 @@ export function channelsRoutes() {
       [agent_id, type, name, token, allowed_users || [], response_mode || 'immediate', response_interval],
     );
     res.json(result.rows[0]);
-    if (getTelegramManager()) getTelegramManager().reload().catch(e => console.error('[telegram] reload failed:', e.message));
+    reloadTelegram();
   });
 
   router.put('/channels/:id', async (req, res) => {
@@ -67,7 +68,7 @@ export function channelsRoutes() {
     );
     if (result.rowCount === 0) return res.status(404).json({ error: 'not found' });
     res.json(result.rows[0]);
-    if (getTelegramManager()) getTelegramManager().reload().catch(e => console.error('[telegram] reload failed:', e.message));
+    reloadTelegram();
   });
 
   router.delete('/channels/:id', async (req, res) => {
@@ -83,7 +84,7 @@ export function channelsRoutes() {
     } catch {}
     await query('DELETE FROM channels WHERE id = $1', [req.params.id]);
     res.json({ ok: true });
-    if (getTelegramManager()) getTelegramManager().reload().catch(e => console.error('[telegram] reload failed:', e.message));
+    reloadTelegram();
     // Channels cascade to cron_jobs via FK; refresh the runner so it drops them.
     reloadCronJobs();
   });

@@ -1,6 +1,7 @@
 import express from 'express';
 import { adminQuery as query } from '../../db/pool.js';
 
+// Mounted under /api behind authMiddleware in server.js; no per-route guards needed.
 export function skillsRoutes() {
   const router = express.Router();
 
