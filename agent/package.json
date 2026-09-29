@@ -10,10 +10,11 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "@sentry/node": "^11.1.0",
+    "cheerio": "^1.0.0",
     "express": "^5.2.1",
     "node-cron": "^3.0.3",
     "node-telegram-bot-api": "^0.66.0",
-    "pg": "^8.16.0",
-    "cheerio": "^1.0.0"
+    "pg": "^8.16.0"
   }
 }
