@@ -5,6 +5,7 @@ import { composeUserText } from './lib/composeUserText.js';
 import { timestampNote } from './lib/timestamp.js';
 import { toolIcons, appendToolIcons, toolTrace } from './lib/toolIcons.js';
 import { claimsAction, CLAIM_NUDGE } from './lib/claimGuard.js';
+import { isEmptyReply, emptyReplyNudge, fallbackReply } from './lib/emptyReply.js';
 import { composeSystemPrompt, formatToolLine } from './lib/systemPrompt.js';
 import { filterVisibleEntries, groupEntriesByServer } from './lib/mcpVisibility.js';
 import { hideSearchTools } from './lib/searchProviders.js';
@@ -13,6 +14,12 @@ import { hasActiveSearchEngine } from './db/searchEngines.js';
 import { getTimezone } from './db/settings.js';
 
 const MAX_ITERATIONS = 50;
+
+// How many times a silent turn gets pushed back with an instruction to speak.
+// Two: the first nudge catches the common case (the model treated a finished
+// tool chain as the end of its turn), a second covers one stubborn repeat.
+// Beyond that the model is not going to talk, and retrying only burns tokens.
+const MAX_EMPTY_RETRIES = 2;
 
 export class Agent {
   #registry;
@@ -191,6 +198,7 @@ export class Agent {
     const collectedToolCalls = [];
     let collectedThinking = '';
     let claimRetried = false;
+    let emptyRetries = 0;
 
     for (let i = 0; i < MAX_ITERATIONS; i++) {
       const response = onEvent
@@ -213,6 +221,27 @@ export class Agent {
           messages.push({ role: 'system', content: CLAIM_NUDGE });
           continue;
         }
+        // A turn with no tool call and no text is not an answer — it used to
+        // reach the user as the literal "(no response)". Push it back with an
+        // instruction to speak. Bounded, so a model that stays mute ends the
+        // run instead of looping.
+        if (isEmptyReply(response.content) && emptyRetries < MAX_EMPTY_RETRIES) {
+          emptyRetries++;
+          messages.push(response);
+          messages.push({ role: 'system', content: emptyReplyNudge(collectedToolCalls) });
+          continue;
+        }
+
+        // Nothing came back even after the nudges: answer with what is known
+        // rather than a placeholder. Streaming clients never received these
+        // bytes (there were none to stream), so send them as a chunk too.
+        let finalText = response.content;
+        if (isEmptyReply(finalText)) {
+          finalText = fallbackReply(collectedToolCalls, response._finishReason);
+          console.warn(`[agent] no text after ${emptyRetries} empty-reply retries; answering with the fallback`);
+          if (onEvent) onEvent('content', finalText);
+        }
+
         // The 🗄️/🔧 status line is appended mechanically from the calls
         // actually made this turn (the model is told not to write it).
         // Streamed clients accumulated the raw text, so ship the line as
@@ -220,7 +249,7 @@ export class Agent {
         const icons = toolIcons(collectedToolCalls);
         if (icons && onEvent) onEvent('content', `\n\n${icons}`);
         return {
-          content: appendToolIcons(response.content || '(no response)', collectedToolCalls),
+          content: appendToolIcons(finalText, collectedToolCalls),
           thinking: collectedThinking || null,
           toolCalls: collectedToolCalls,
         };
@@ -250,16 +279,24 @@ export class Agent {
       const finalResponse = onEvent
         ? await chatStream(messages, [], llmOpts, onEvent)
         : await chat(messages, [], llmOpts);
-      summary = finalResponse.content || null;
+      if (!isEmptyReply(finalResponse.content)) summary = finalResponse.content;
       if (finalResponse.thinking) collectedThinking += finalResponse.thinking;
     } catch (err) {
       console.error('[agent] tool-limit summary call failed:', err.message);
     }
 
+    // The model was asked for a closing summary and gave none (or the call
+    // failed). Same rule as the normal exit: report what ran, never a bare
+    // marker, and stream it so the live view matches what is stored.
+    if (!summary) {
+      summary = fallbackReply(collectedToolCalls, 'tool-call limit reached');
+      if (onEvent) onEvent('content', summary);
+    }
+
     const icons = toolIcons(collectedToolCalls);
     if (icons && onEvent) onEvent('content', `\n\n${icons}`);
     return {
-      content: appendToolIcons(summary || '(reached maximum tool call iterations)', collectedToolCalls),
+      content: appendToolIcons(summary, collectedToolCalls),
       thinking: collectedThinking || null,
       toolCalls: collectedToolCalls,
     };

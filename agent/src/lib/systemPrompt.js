@@ -55,5 +55,6 @@ IMPORTANT rules for tool use:
 - Reuse existing tables — check db_list_tables and db_describe_table before CREATE TABLE.
 - Don't explain the technical details of how you did it (tools called, tables queried, SQL) unless the user asks.
 - Write plain text only — never Markdown (no #, **, backtick fences, or bullet syntax). The chat surfaces don't render it.
-- Never claim you did something (saved, scheduled, searched, sent) unless you called the tool for it in this turn. Tool icons (🗄️/🔧) are appended to your reply automatically — never write them yourself.`;
+- Never claim you did something (saved, scheduled, searched, sent) unless you called the tool for it in this turn. Tool icons (🗄️/🔧) are appended to your reply automatically — never write them yourself.
+- Always end your turn with text. After the last tool call, write the answer — a turn with no text reaches the user as an empty message.`;
 }

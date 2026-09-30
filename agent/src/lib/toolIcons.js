@@ -43,7 +43,12 @@ export function appendToolIcons(content, toolCalls = []) {
   return cleaned ? `${cleaned}\n\n${icons}` : icons;
 }
 
+/** The distinct tool names of a turn, in call order. */
+export function toolNames(toolCalls = []) {
+  return [...new Set(toolCalls.map(t => t.name))];
+}
+
 export function toolTrace(toolCalls = []) {
-  const names = [...new Set(toolCalls.map(t => t.name))];
+  const names = toolNames(toolCalls);
   return names.length ? `[used tools: ${names.join(', ')}]` : '';
 }
