@@ -43,6 +43,19 @@
             <button class="btn btn-primary" id="sendBtn" onclick="send()">Send</button>
         </div>
     </div>
+    <div class="modal-overlay" id="toolCallModal" onclick="if (event.target === this) closeToolCallModal()">
+        <div class="dc-modal tool-call-modal" role="dialog" aria-modal="true" aria-labelledby="toolCallModalTitle">
+            <h3 id="toolCallModalTitle"></h3>
+            <label>Arguments</label>
+            <pre id="toolCallModalArgs" class="tool-call-full"></pre>
+            <label>Result</label>
+            <pre id="toolCallModalResult" class="tool-call-full"></pre>
+            <div class="flex justify-end mt-4">
+                <button class="btn btn-ghost btn-sm btn-cancel" onclick="closeToolCallModal()">Close</button>
+            </div>
+        </div>
+    </div>
+    <script src="/static/toolCalls.js"></script>
     <script>
         var sessionId = null, sending = false, currentAgentId = null, pendingFile = null, mediaRecorder = null, audioChunks = [], agents = [];
 
@@ -199,16 +212,9 @@
                 div.appendChild(tb);
             }
             if (toolCalls && toolCalls.length) {
-                var tcBlock = document.createElement('div');
-                tcBlock.className = 'thinking-block';
-                var summary = toolCalls.map(function(tc) { return tc.name; }).join(', ');
-                var details = toolCalls.map(function(tc) {
-                    var args = typeof tc.args === 'string' ? tc.args : JSON.stringify(tc.args, null, 2);
-                    var res = typeof tc.result === 'string' ? tc.result : JSON.stringify(tc.result, null, 2);
-                    return '> ' + tc.name + '(' + args.slice(0, 200) + ')\n' + res.slice(0, 500);
-                }).join('\n\n');
-                tcBlock.innerHTML = '<div class="thinking-toggle" onclick="this.nextElementSibling.classList.toggle(\'open\')">&#128295; Tools: ' + escapeHtml(summary) + '</div><div class="thinking-content">' + escapeHtml(details) + '</div>';
-                div.appendChild(tcBlock);
+                var toolCallsView = createToolCallsBlock();
+                toolCalls.forEach(function(tc) { toolCallsView.add(tc.name, tc.args, tc.result); });
+                div.appendChild(toolCallsView.el);
             }
             var text = document.createElement('div');
             text.textContent = content;
@@ -315,11 +321,9 @@
                 });
                 if (res.status === 401) return window.location.href = '/login';
 
-                // Tool calls container (live)
-                var toolsDiv = document.createElement('div');
-                toolsDiv.style.display = 'none';
-                msgDiv.insertBefore(toolsDiv, contentDiv);
-                var pendingToolNames = [];
+                // Tool calls (live) — created on the first tool_calls event and
+                // kept across rounds, so every call of this turn stays listed.
+                var toolCallsView = null;
 
                 var reader = res.body.getReader();
                 var decoder = new TextDecoder();
@@ -350,16 +354,15 @@
                                 contentDiv.textContent = contentText;
                                 statusRow.querySelector('.status-text').textContent = 'Generating...';
                             } else if (eventType === 'tool_calls') {
-                                toolsDiv.style.display = 'block';
-                                toolsDiv.className = 'thinking-block';
-                                pendingToolNames = data.map(function(tc) { return tc.function.name; });
-                                var args = data.map(function(tc) { return tc.function.name + '(' + JSON.stringify(tc.function.arguments).slice(0, 150) + ')'; }).join('\n');
-                                toolsDiv.innerHTML = '<div class="thinking-toggle" onclick="this.nextElementSibling.classList.toggle(\'open\')">&#128295; ' + escapeHtml(pendingToolNames.join(', ')) + '</div><div class="thinking-content open">' + escapeHtml(args) + '</div>';
-                                statusRow.querySelector('.status-text').textContent = 'Using: ' + pendingToolNames.join(', ');
+                                if (!toolCallsView) {
+                                    toolCallsView = createToolCallsBlock();
+                                    toolCallsView.expand();
+                                    msgDiv.insertBefore(toolCallsView.el, contentDiv);
+                                }
+                                data.forEach(function(tc) { toolCallsView.add(tc.function.name, tc.function.arguments); });
+                                statusRow.querySelector('.status-text').textContent = 'Using: ' + data.map(function(tc) { return tc.function.name; }).join(', ');
                             } else if (eventType === 'tool_result') {
-                                var resultStr = JSON.stringify(data.result).slice(0, 500);
-                                var tcContent = toolsDiv.querySelector('.thinking-content');
-                                if (tcContent) tcContent.textContent += '\n\n> ' + data.name + ' result:\n' + resultStr;
+                                if (toolCallsView) toolCallsView.setResult(data.name, data.result);
                                 statusRow.querySelector('.status-text').textContent = 'Got result from ' + data.name;
                             } else if (eventType === 'done') {
                                 sessionId = data.sessionId;
@@ -380,10 +383,7 @@
                     thinkDiv.querySelector('.thinking-toggle').innerHTML = '&#9656; Thinking';
                     thinkDiv.querySelector('.thinking-content').classList.remove('open');
                 }
-                if (toolsDiv.style.display !== 'none') {
-                    var tc = toolsDiv.querySelector('.thinking-content');
-                    if (tc) tc.classList.remove('open');
-                }
+                if (toolCallsView) toolCallsView.collapse();
             } catch (err) {
                 contentDiv.textContent = 'Error: ' + err.message;
                 msgDiv.classList.remove('streaming');

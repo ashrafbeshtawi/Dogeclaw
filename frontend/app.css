@@ -12,6 +12,7 @@
 
 @import "tailwindcss";
 @source "../agent/src/web/public/*.html";
+@source "../agent/src/web/public/**/*.js";
 
 @plugin "daisyui" {
   themes: dogeclaw --default;
@@ -235,6 +236,78 @@
     font-size: 0.75rem;
   }
   .thinking-content.open { display: block; }
+
+  /* ---------- chat: tool calls (emitted by toolCalls.js) ---------- */
+  .tool-call-list {
+    display: none;
+    border-top: 1px solid color-mix(in oklab, var(--color-primary) 10%, transparent);
+    padding: 0.35rem;
+  }
+  .tool-call-list.open { display: flex; flex-direction: column; gap: 0.3rem; }
+  .tool-call {
+    border: 1px solid color-mix(in oklab, var(--color-primary) 10%, transparent);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .tool-call-head { display: flex; align-items: stretch; }
+  .tool-call-toggle {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    padding: 0.35rem 0.55rem;
+    background: transparent;
+    border: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .tool-call-toggle::before { content: "▸"; transition: transform 0.15s; }
+  .tool-call.open .tool-call-toggle::before { transform: rotate(90deg); }
+  .tool-call-toggle:hover,
+  .tool-call-eye:hover { background: color-mix(in oklab, var(--color-primary) 6%, transparent); }
+  .tool-call-name { color: var(--color-accent); font-weight: 600; white-space: nowrap; }
+  .tool-call-args {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.72rem;
+  }
+  .tool-call-eye {
+    padding: 0 0.6rem;
+    background: transparent;
+    border: none;
+    border-left: 1px solid color-mix(in oklab, var(--color-primary) 10%, transparent);
+    color: inherit;
+    cursor: pointer;
+  }
+  .tool-call-body {
+    display: none;
+    margin: 0;
+    padding: 0.45rem 0.6rem;
+    border-top: 1px solid color-mix(in oklab, var(--color-primary) 10%, transparent);
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 0.72rem;
+  }
+  .tool-call.open .tool-call-body { display: block; }
+  .dc-modal.tool-call-modal { max-width: 900px; }
+  .tool-call-full {
+    max-height: 35vh;
+    overflow: auto;
+    margin: 0;
+    padding: 0.6rem 0.75rem;
+    border-radius: var(--radius-field);
+    background: rgb(255 255 255 / 0.03);
+    border: 1px solid rgb(255 255 255 / 0.08);
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 0.75rem;
+  }
 
   /* ---------- chat: streaming status (emitted by JS) ---------- */
   .spinner {
