@@ -52,16 +52,22 @@ test.describe('migration runner', () => {
     expect(inSystem).toEqual(expect.arrayContaining(['agents', 'schema_migrations', 'sessions', 'skills']));
   });
 
-  test('agent role creates its tables in public and can still read skills', async () => {
+  test('agent role creates its tables in public', async () => {
     const out = psql(`
       SET ROLE dogeclaw;
-      SET search_path = public, system;
+      SET search_path = public;
       CREATE TABLE schema_probe (id int);
       SELECT n.nspname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE c.relname = 'schema_probe';
-      SELECT COUNT(*) >= 0 FROM skills;
       DROP TABLE schema_probe;
     `);
-    expect(out.split('\n').filter(Boolean)).toEqual(['SET', 'SET', 'CREATE TABLE', 'public', 't', 'DROP TABLE']);
+    expect(out.split('\n').filter(Boolean)).toEqual(['SET', 'SET', 'CREATE TABLE', 'public', 'DROP TABLE']);
+  });
+
+  test('agent role has no access to the system schema', async () => {
+    for (const table of ['skills', 'agents', 'sessions', 'channels', 'models']) {
+      expect(() => psql(`SET ROLE dogeclaw; SELECT 1 FROM system.${table} LIMIT 1;`))
+        .toThrow(/permission denied for schema system/);
+    }
   });
 
   test('runner is idempotent (no new rows after a second invocation)', async ({ request }) => {

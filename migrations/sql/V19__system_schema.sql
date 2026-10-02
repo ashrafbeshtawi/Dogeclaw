@@ -3,13 +3,15 @@
 --
 -- The schema itself and schema_migrations are created by the runner before
 -- any migration runs (db/migrate.js), and both pools pin search_path
--- (db/pool.js): admin resolves `system, public`, the agent role
--- `public, system`. On a fresh install every earlier migration therefore
--- already created its tables in `system` and the moves below find nothing.
+-- (db/pool.js): admin resolves `system, public`, the agent role only
+-- `public`. On a fresh install every earlier migration therefore already
+-- created its tables in `system` and the moves below find nothing.
 --
--- Grants travel with the tables; the agent role gets USAGE on `system` so
--- its existing read-only grants keep working. No CREATE: the agent's own
--- tables can only land in `public`.
+-- The restricted dogeclaw role has no access to `system` at all: every
+-- query DogeClaw runs itself goes through the admin pool, and the agent
+-- role only runs the agent's own SQL against `public`. The read-only grants
+-- earlier migrations handed out (V3, V7, V8, V10) travel with the tables,
+-- so they are revoked here.
 
 DO $$
 DECLARE
@@ -30,7 +32,9 @@ BEGIN
     ALTER TYPE public.mcp_transport SET SCHEMA system;
   END IF;
 
-  EXECUTE 'GRANT USAGE ON SCHEMA system TO dogeclaw';
+  REVOKE ALL ON ALL TABLES IN SCHEMA system FROM dogeclaw;
+  REVOKE ALL ON ALL SEQUENCES IN SCHEMA system FROM dogeclaw;
+  REVOKE ALL ON SCHEMA system FROM dogeclaw;
   -- Same resolution for anyone connecting as the admin role by hand (psql).
   EXECUTE format('ALTER ROLE %I IN DATABASE %I SET search_path = system, public',
                  current_user, current_database());

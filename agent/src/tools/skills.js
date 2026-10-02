@@ -1,21 +1,19 @@
-import { agentQuery, adminQuery } from '../db/pool.js';
+import { adminQuery } from '../db/pool.js';
 import { makeSkillHandlers } from '../lib/skillTools.js';
 
 /**
  * Returns skills available to the given agent:
  * - Skills explicitly assigned to this agent
  * - Skills with no assignments (public)
- * Runs as the agent role, whose search_path puts its own `public` tables
- * first — hence the schema-qualified names, so no agent table can shadow them.
  */
 export async function listSkillsForAgent(agentId) {
   if (!agentId) return [];
-  const result = await agentQuery(`
+  const result = await adminQuery(`
     SELECT s.id, s.name, s.description
-    FROM system.skills s
-    LEFT JOIN system.agent_skills a ON s.id = a.skill_id
+    FROM skills s
+    LEFT JOIN agent_skills a ON s.id = a.skill_id
     WHERE a.agent_id = $1
-       OR NOT EXISTS (SELECT 1 FROM system.agent_skills WHERE skill_id = s.id)
+       OR NOT EXISTS (SELECT 1 FROM agent_skills WHERE skill_id = s.id)
     ORDER BY s.id
   `, [agentId]);
   return result.rows;
@@ -40,13 +38,13 @@ export function register(registry) {
     if (!skill_id) return { error: 'skill_id is required' };
 
     // Check if skill exists and is accessible to this agent
-    const result = await agentQuery(`
+    const result = await adminQuery(`
       SELECT s.id, s.name, s.description, s.content
-      FROM system.skills s
+      FROM skills s
       WHERE s.id = $1
         AND ($2::int IS NULL OR EXISTS (
-          SELECT 1 FROM system.agent_skills WHERE skill_id = s.id AND agent_id = $2
-        ) OR NOT EXISTS (SELECT 1 FROM system.agent_skills WHERE skill_id = s.id))
+          SELECT 1 FROM agent_skills WHERE skill_id = s.id AND agent_id = $2
+        ) OR NOT EXISTS (SELECT 1 FROM agent_skills WHERE skill_id = s.id))
     `, [skill_id, agentId || null]);
 
     if (result.rowCount === 0) return { error: `Skill ${skill_id} not found or not accessible to this agent` };
