@@ -53,3 +53,12 @@ test('custom agent prompt keeps the STYLE rules', () => {
   assert.match(prompt, /STYLE — these rules always apply/);
   assert.match(prompt, /1-3 short sentences/);
 });
+
+test('the always-answer rule survives a custom agent prompt', () => {
+  // The loop enforces this too (see lib/emptyReply.js); the rule keeps the
+  // model from producing the silent turn in the first place, so it must sit
+  // outside the replaceable base like the other tool rules.
+  const prompt = composeSystemPrompt({ customPrompt: 'You are Bob, a pirate.', workspace: '/w', toolDescriptions: '' });
+  assert.match(prompt, /Always end your turn with text\./);
+  assert.match(prompt, /reaches the user as an empty message/);
+});

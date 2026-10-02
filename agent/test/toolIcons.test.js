@@ -5,7 +5,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { toolIcons, appendToolIcons, toolTrace } from '../src/lib/toolIcons.js';
+import { toolIcons, appendToolIcons, toolTrace, toolNames } from '../src/lib/toolIcons.js';
 
 test('toolIcons: database vs other tools vs both vs none', () => {
   assert.equal(toolIcons([]), '');
@@ -49,5 +49,13 @@ test('toolTrace: unique tool names in call order, empty for none', () => {
   assert.equal(
     toolTrace([{ name: 'web_search' }, { name: 'database' }, { name: 'web_search' }]),
     '[used tools: web_search, database]',
+  );
+});
+
+test('toolNames: distinct names in call order, empty for none', () => {
+  assert.equal(toolNames([]).length, 0);
+  assert.deepEqual(
+    toolNames([{ name: 'web_search' }, { name: 'database' }, { name: 'web_search' }]),
+    ['web_search', 'database'],
   );
 });
