@@ -37,6 +37,33 @@ test.describe('migration runner', () => {
     expect(cols).toEqual(['version', 'name', 'applied_at']);
   });
 
+  test('DogeClaw tables live in the system schema, public is left to the agent', async () => {
+    const inPublic = psqlQuery(`
+      SELECT c.relname FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+       WHERE n.nspname = 'public' AND c.relkind = 'r'
+         AND pg_get_userbyid(c.relowner) <> 'dogeclaw';
+    `).map(r => r[0]);
+    expect(inPublic).toEqual([]);
+
+    const inSystem = psqlQuery(`
+      SELECT tablename FROM pg_tables WHERE schemaname = 'system' ORDER BY tablename;
+    `).map(r => r[0]);
+    expect(inSystem).toEqual(expect.arrayContaining(['agents', 'schema_migrations', 'sessions', 'skills']));
+  });
+
+  test('agent role creates its tables in public and can still read skills', async () => {
+    const out = psql(`
+      SET ROLE dogeclaw;
+      SET search_path = public, system;
+      CREATE TABLE schema_probe (id int);
+      SELECT n.nspname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE c.relname = 'schema_probe';
+      SELECT COUNT(*) >= 0 FROM skills;
+      DROP TABLE schema_probe;
+    `);
+    expect(out.split('\n').filter(Boolean)).toEqual(['SET', 'SET', 'CREATE TABLE', 'public', 't', 'DROP TABLE']);
+  });
+
   test('runner is idempotent (no new rows after a second invocation)', async ({ request }) => {
     const before = psqlQuery('SELECT COUNT(*) FROM schema_migrations;')[0][0];
     // Force an agent restart so its main() re-runs runMigrations(). The
