@@ -16,7 +16,7 @@
 import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import config from '../config.js';
-import { getAdminPool } from './pool.js';
+import { getAdminPool, SYSTEM_SCHEMA } from './pool.js';
 
 // Arbitrary 32-bit signed int. Same key for every replica so they
 // serialise on the same lock. Don't change this between releases.
@@ -31,6 +31,7 @@ export async function runMigrations() {
     await client.query('SELECT pg_advisory_lock($1)', [ADVISORY_LOCK_KEY]);
     locked = true;
 
+    await ensureSystemSchema(client);
     await client.query(`
       CREATE TABLE IF NOT EXISTS schema_migrations (
         version    INTEGER       PRIMARY KEY,
@@ -72,6 +73,21 @@ export async function runMigrations() {
       await client.query('SELECT pg_advisory_unlock($1)', [ADVISORY_LOCK_KEY]).catch(() => {});
     }
     client.release();
+  }
+}
+
+// The pool's search_path already lists the system schema, but a schema that
+// doesn't exist yet is skipped — so it has to exist before anything is
+// created, or V1 on a fresh install would land in public. schema_migrations
+// itself moves here before it is read; V19 moves the rest on existing DBs.
+async function ensureSystemSchema(client) {
+  await client.query(`CREATE SCHEMA IF NOT EXISTS ${SYSTEM_SCHEMA}`);
+  const { rows } = await client.query(
+    `SELECT to_regclass('public.schema_migrations') AS legacy,
+            to_regclass('${SYSTEM_SCHEMA}.schema_migrations') AS current`,
+  );
+  if (rows[0].legacy && !rows[0].current) {
+    await client.query(`ALTER TABLE public.schema_migrations SET SCHEMA ${SYSTEM_SCHEMA}`);
   }
 }
 

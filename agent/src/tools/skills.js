@@ -1,4 +1,4 @@
-import { agentQuery, adminQuery } from '../db/pool.js';
+import { adminQuery } from '../db/pool.js';
 import { makeSkillHandlers } from '../lib/skillTools.js';
 
 /**
@@ -8,7 +8,7 @@ import { makeSkillHandlers } from '../lib/skillTools.js';
  */
 export async function listSkillsForAgent(agentId) {
   if (!agentId) return [];
-  const result = await agentQuery(`
+  const result = await adminQuery(`
     SELECT s.id, s.name, s.description
     FROM skills s
     LEFT JOIN agent_skills a ON s.id = a.skill_id
@@ -38,7 +38,7 @@ export function register(registry) {
     if (!skill_id) return { error: 'skill_id is required' };
 
     // Check if skill exists and is accessible to this agent
-    const result = await agentQuery(`
+    const result = await adminQuery(`
       SELECT s.id, s.name, s.description, s.content
       FROM skills s
       WHERE s.id = $1

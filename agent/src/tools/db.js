@@ -5,19 +5,16 @@ import { trimTextFields } from '../lib/trimTextFields.js';
 // writes plain SQL for reads and writes — earlier per-operation wrappers
 // (db_select/insert/update/delete) just re-invented a worse SQL in JSON.
 
-const READ_ONLY_NOTE = 'The agents and skills tables are read-only.';
-
 export function register(registry) {
   registry.register('db_list_tables', {
     type: 'function',
     function: {
       name: 'db_list_tables',
-      description: 'List the tables in your PostgreSQL memory database with approximate row counts. Check this (and db_describe_table) before creating a new table — reuse existing tables. ' + READ_ONLY_NOTE,
+      description: 'List the tables in your PostgreSQL memory database with approximate row counts. Check this (and db_describe_table) before creating a new table — reuse existing tables.',
       parameters: { type: 'object', properties: {} },
     },
   }, async () => {
-    // Only tables the agent role itself created: DogeClaw's own
-    // infrastructure tables are owned by the admin role and stay hidden.
+    // Only tables the agent role itself created in public.
     // reltuples is the planner's estimate (-1 = never analyzed → 0).
     const res = await agentQuery(
       `SELECT c.relname AS table_name,
@@ -75,7 +72,7 @@ export function register(registry) {
     type: 'function',
     function: {
       name: 'db_run_sql',
-      description: 'Run SQL against your PostgreSQL memory database — SELECT, INSERT, UPDATE, DELETE, CREATE TABLE, JOINs, aggregates. Use params ($1, $2) for values. Examples: {"query": "SELECT * FROM notes WHERE topic = $1 ORDER BY created_at DESC LIMIT 20", "params": ["health"]} or {"query": "INSERT INTO notes (topic, body) VALUES ($1, $2)", "params": ["health", "..."]}. Long text values in results are shown trimmed. ' + READ_ONLY_NOTE,
+      description: 'Run SQL against your PostgreSQL memory database — SELECT, INSERT, UPDATE, DELETE, CREATE TABLE, JOINs, aggregates. Use params ($1, $2) for values. Examples: {"query": "SELECT * FROM notes WHERE topic = $1 ORDER BY created_at DESC LIMIT 20", "params": ["health"]} or {"query": "INSERT INTO notes (topic, body) VALUES ($1, $2)", "params": ["health", "..."]}. Long text values in results are shown trimmed.',
       parameters: {
         type: 'object',
         properties: {
