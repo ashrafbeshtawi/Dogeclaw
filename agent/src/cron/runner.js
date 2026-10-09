@@ -39,6 +39,7 @@ export class CronRunner {
   #telegramManager;
   #tasks = new Map();
   #oneShotTimer = null;
+  #reloadChain = Promise.resolve();
 
   constructor(agent, telegramManager) {
     this.#agent = agent;
@@ -52,12 +53,18 @@ export class CronRunner {
     }, ONE_SHOT_TICK_MS);
   }
 
-  async reload() {
-    for (const task of this.#tasks.values()) {
-      try { task.stop(); } catch {}
-    }
-    this.#tasks.clear();
+  // Reloads are fired unawaited from many routes, so they can overlap. They
+  // run one at a time, and each swaps the old tasks for the new ones only
+  // after the DB reads succeed, with no await in between: an overlapping
+  // reload can never orphan a still-running task, and a failed read keeps
+  // the current schedule instead of leaving none.
+  reload() {
+    const run = this.#reloadChain.then(() => this.#reload());
+    this.#reloadChain = run.catch(() => {});
+    return run;
+  }
 
+  async #reload() {
     const defaultTz = await getTimezone();
 
     let jobs;
@@ -68,6 +75,11 @@ export class CronRunner {
       return;
     }
 
+    for (const task of this.#tasks.values()) {
+      try { task.stop(); } catch {}
+    }
+    this.#tasks.clear();
+
     for (const job of jobs) {
       if (!job.expression) continue;
       if (!cron.validate(job.expression)) {
@@ -76,11 +88,15 @@ export class CronRunner {
       }
       const tz = job.timezone || defaultTz;
       try {
+        // node-cron 3 checks the clock roughly once a second and, without
+        // recoverMissedExecutions, drops a match whenever that check lands
+        // a second late (busy event loop, timer drift). Recovery fires the
+        // late match instead; its lastExecution guard prevents double runs.
         const task = cron.schedule(job.expression, () => {
           this.#dispatch(job.id).catch(err =>
             console.error(`[cron] job ${job.id} dispatch:`, err.message),
           );
-        }, { timezone: tz });
+        }, { timezone: tz, recoverMissedExecutions: true });
         this.#tasks.set(job.id, task);
       } catch (err) {
         console.error(`[cron] failed to schedule job ${job.id}:`, err.message);
