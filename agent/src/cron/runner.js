@@ -1,12 +1,11 @@
-import cron from 'node-cron';
 import {
-  listEnabledJobs,
-  getJob,
   recordRun,
-  disableJob,
-  findDueOneShots,
+  computeNextCronRun,
+  findUnscheduledJobs,
+  planNextRun,
+  findDueJobs,
+  claimDueRun,
 } from '../db/crons.js';
-import { getTimezone } from '../db/settings.js';
 import {
   loadSession,
   ensureSession,
@@ -19,27 +18,19 @@ import { loadAgentRuntime } from '../db/agentRuntime.js';
 import { adminQuery } from '../db/pool.js';
 import { insertEventLog } from '../db/eventLogs.js';
 
-const ONE_SHOT_TICK_MS = 60_000;
+const TICK_MS = 15_000;
+// A recurring run found due later than this (the process was down over its
+// slot) is skipped rather than fired late; the job just moves on to its next
+// slot. One-shots always fire, however late — they happen only once.
+const MAX_LATENESS_MS = 15 * 60_000;
 
-let activeRunner = null;
-
-export function setActiveCronRunner(runner) {
-  activeRunner = runner;
-}
-
-export async function reloadCronJobs() {
-  if (activeRunner) {
-    try { await activeRunner.reload(); }
-    catch (err) { console.error('[cron] reload failed:', err.message); }
-  }
-}
-
+// The schedule lives only in cron_jobs.next_run_at. Every tick plans the
+// jobs that have no next run yet and claims the ones that are due; edits
+// through db/crons.js take effect on the next tick without any reload.
 export class CronRunner {
   #agent;
   #telegramManager;
-  #tasks = new Map();
-  #oneShotTimer = null;
-  #reloadChain = Promise.resolve();
+  #tickTimer = null;
 
   constructor(agent, telegramManager) {
     this.#agent = agent;
@@ -47,78 +38,57 @@ export class CronRunner {
   }
 
   async start() {
-    await this.reload();
-    this.#oneShotTimer = setInterval(() => {
-      this.#tickOneShots().catch(err => console.error('[cron] one-shot tick:', err.message));
-    }, ONE_SHOT_TICK_MS);
+    await this.#runTick();
+    this.#tickTimer = setInterval(() => this.#runTick(), TICK_MS);
+    console.log(`[cron] runner started; checking for due jobs every ${TICK_MS / 1000}s`);
   }
 
-  // Reloads are fired unawaited from many routes, so they can overlap. They
-  // run one at a time, and each swaps the old tasks for the new ones only
-  // after the DB reads succeed, with no await in between: an overlapping
-  // reload can never orphan a still-running task, and a failed read keeps
-  // the current schedule instead of leaving none.
-  reload() {
-    const run = this.#reloadChain.then(() => this.#reload());
-    this.#reloadChain = run.catch(() => {});
-    return run;
-  }
-
-  async #reload() {
-    const defaultTz = await getTimezone();
-
-    let jobs;
+  async #runTick() {
     try {
-      jobs = await listEnabledJobs();
+      await this.#planUnscheduledJobs();
+      await this.#startDueRuns();
     } catch (err) {
-      console.error('[cron] failed to load jobs:', err.message);
-      return;
+      console.error('[cron] tick:', err.message);
     }
+  }
 
-    for (const task of this.#tasks.values()) {
-      try { task.stop(); } catch {}
-    }
-    this.#tasks.clear();
-
-    for (const job of jobs) {
-      if (!job.expression) continue;
-      if (!cron.validate(job.expression)) {
-        console.warn(`[cron] job ${job.id} has invalid expression "${job.expression}", skipping`);
-        continue;
-      }
-      const tz = job.timezone || defaultTz;
+  async #planUnscheduledJobs() {
+    for (const job of await findUnscheduledJobs()) {
       try {
-        // node-cron 3 checks the clock roughly once a second and, without
-        // recoverMissedExecutions, drops a match whenever that check lands
-        // a second late (busy event loop, timer drift). Recovery fires the
-        // late match instead; its lastExecution guard prevents double runs.
-        const task = cron.schedule(job.expression, () => {
-          this.#dispatch(job.id).catch(err =>
-            console.error(`[cron] job ${job.id} dispatch:`, err.message),
-          );
-        }, { timezone: tz, recoverMissedExecutions: true });
-        this.#tasks.set(job.id, task);
+        const nextRunAt = job.run_at
+          ? new Date(job.run_at)
+          : computeNextCronRun(job.expression, job.timezone, job.updated_at);
+        await planNextRun(job, nextRunAt);
       } catch (err) {
-        console.error(`[cron] failed to schedule job ${job.id}:`, err.message);
+        console.error(`[cron] job ${job.id} cannot be planned:`, err.message);
       }
     }
-
-    console.log(`[cron] Loaded ${this.#tasks.size} recurring job(s); one-shot tick every ${ONE_SHOT_TICK_MS / 1000}s`);
   }
 
-  async #tickOneShots() {
-    const due = await findDueOneShots();
-    for (const job of due) {
-      this.#dispatch(job.id).catch(err =>
-        console.error(`[cron] one-shot ${job.id} dispatch:`, err.message),
-      );
+  async #startDueRuns() {
+    const now = new Date();
+    for (const job of await findDueJobs()) {
+      try {
+        const nextRunAt = job.run_at ? null : computeNextCronRun(job.expression, job.timezone, now);
+        const claimed = await claimDueRun(job, nextRunAt);
+        if (!claimed) continue;
+        const lateness = now - job.next_run_at;
+        if (!job.run_at && lateness > MAX_LATENESS_MS) {
+          console.warn(`[cron] job ${job.id} skipped its ${job.next_run_at.toISOString()} run, found ${Math.round(lateness / 60_000)} min late`);
+          continue;
+        }
+        this.#dispatch(claimed).catch(err =>
+          console.error(`[cron] job ${job.id} dispatch:`, err.message),
+        );
+      } catch (err) {
+        console.error(`[cron] job ${job.id} cannot be claimed:`, err.message);
+      }
     }
   }
 
-  async #dispatch(jobId) {
-    const job = await getJob(jobId);
-    if (!job || !job.enabled) return;
-
+  // `job` is the row as claimed, so a one-shot arrives already disabled.
+  async #dispatch(job) {
+    const jobId = job.id;
     const isTelegram = !!job.chat_id;
     const isOneShot = !!job.run_at;
     let sessionId;
@@ -253,19 +223,11 @@ export class CronRunner {
           attempts,
         },
       }).catch(logErr => console.error(`[cron] event log insert failed:`, logErr.message));
-    } finally {
-      if (isOneShot) await disableJob(jobId).catch(() => {});
     }
   }
 
   stop() {
-    for (const task of this.#tasks.values()) {
-      try { task.stop(); } catch {}
-    }
-    this.#tasks.clear();
-    if (this.#oneShotTimer) {
-      clearInterval(this.#oneShotTimer);
-      this.#oneShotTimer = null;
-    }
+    clearInterval(this.#tickTimer);
+    this.#tickTimer = null;
   }
 }

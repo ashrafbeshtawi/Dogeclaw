@@ -9,7 +9,6 @@ import {
 } from '../db/sessions.js';
 import { listJobs, getJob, deleteJob } from '../db/crons.js';
 import { enqueue as enqueueMessage, claimBatch } from '../db/queue.js';
-import { reloadCronJobs } from '../cron/runner.js';
 import { withSessionLock } from '../lib/sessionLock.js';
 import { toModelConfig } from '../db/agentRuntime.js';
 import config from '../config.js';
@@ -429,7 +428,6 @@ export class TelegramManager {
         return bot.sendMessage(msg.chat.id, `Job #${id} is not in this chat.`);
       }
       await deleteJob(id);
-      await reloadCronJobs();
       return bot.sendMessage(msg.chat.id, `Removed job #${id}.`);
     }
 

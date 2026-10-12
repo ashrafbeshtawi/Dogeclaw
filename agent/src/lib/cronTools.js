@@ -33,7 +33,7 @@ function toJobSummary(j) {
   };
 }
 
-export function makeCronHandlers({ listJobs, getJob, createJob, deleteJob, getTimezone, reloadCronJobs }) {
+export function makeCronHandlers({ listJobs, getJob, createJob, deleteJob, getTimezone }) {
   return {
     async addCron({ expression, run_at, timezone, description, prompt }, context = {}) {
       if (!prompt) return { error: 'prompt is required' };
@@ -57,7 +57,6 @@ export function makeCronHandlers({ listJobs, getJob, createJob, deleteJob, getTi
           description: description || '',
           prompt,
         });
-        reloadCronJobs();
         return { created: job };
       } catch (err) {
         return { error: err.message };
@@ -102,7 +101,6 @@ export function makeCronHandlers({ listJobs, getJob, createJob, deleteJob, getTi
       const job = await getJob(id);
       if (!job || !ownsJob(job, context)) return { error: `Job ${id} not found` };
       await deleteJob(id);
-      reloadCronJobs();
       return { removed: id };
     },
   };

@@ -1,11 +1,32 @@
-import cron from 'node-cron';
+import { CronExpressionParser } from 'cron-parser';
 import { adminQuery } from './pool.js';
 
-function validateSchedule({ expression, runAt }) {
+// The next time a recurring job is due strictly after `from`, in the job's
+// timezone. Throws on an invalid expression or timezone.
+export function computeNextCronRun(expression, timezone, from) {
+  return CronExpressionParser.parse(expression, { tz: timezone, currentDate: from }).next().toDate();
+}
+
+// cron-parser fills missing fields with defaults, so "0 10 * *" would parse;
+// only the 5-field form and the 6-field form with seconds are accepted.
+function isValidCronExpression(expression, timezone) {
+  const fieldCount = expression.trim().split(/\s+/).length;
+  if (fieldCount !== 5 && fieldCount !== 6) return false;
+  try {
+    computeNextCronRun(expression, timezone || 'UTC', new Date());
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function validateSchedule({ expression, runAt, timezone }) {
   const hasExpr = expression != null && expression !== '';
   const hasRunAt = runAt != null && runAt !== '';
   if (hasExpr === hasRunAt) return 'exactly one of expression or run_at is required';
-  if (hasExpr && !cron.validate(expression)) return `invalid cron expression: ${expression}`;
+  if (hasExpr && !isValidCronExpression(expression, timezone)) {
+    return `invalid cron expression or timezone: ${expression} (${timezone || 'UTC'})`;
+  }
   if (hasRunAt && isNaN(new Date(runAt).getTime())) return `invalid run_at: ${runAt}`;
   return null;
 }
@@ -26,11 +47,6 @@ export async function listJobs() {
        LEFT JOIN channels c ON j.channel_id = c.id
       ORDER BY j.id DESC`,
   );
-  return res.rows;
-}
-
-export async function listEnabledJobs() {
-  const res = await adminQuery(`SELECT * FROM cron_jobs WHERE enabled ORDER BY id`);
   return res.rows;
 }
 
@@ -74,6 +90,7 @@ export async function updateJob(id, patch) {
   const merged = {
     expression: patch.expression !== undefined ? patch.expression : current.expression,
     runAt:      patch.runAt      !== undefined ? patch.runAt      : current.run_at,
+    timezone:   patch.timezone   !== undefined ? patch.timezone   : current.timezone,
   };
   const err = validateSchedule(merged);
   if (err) throw new Error(err);
@@ -95,7 +112,9 @@ export async function updateJob(id, patch) {
     }
   }
   if (!sets.length) return current;
-  sets.push(`updated_at = NOW()`);
+  // Any change hands the job back to the runner to plan its next run from
+  // the new updated_at (see planUnscheduledJobs).
+  sets.push(`next_run_at = NULL`, `updated_at = NOW()`);
   values.push(id);
   const res = await adminQuery(
     `UPDATE cron_jobs SET ${sets.join(', ')} WHERE id = $${i} RETURNING *`,
@@ -122,14 +141,55 @@ export async function recordRun(id, { status, error }) {
   );
 }
 
-export async function disableJob(id) {
-  await adminQuery(`UPDATE cron_jobs SET enabled = false, updated_at = NOW() WHERE id = $1`, [id]);
-}
+// Scheduling: next_run_at is the single source of truth for when a job runs.
+// NULL means "not planned yet" — new jobs, edited jobs, and rows from before
+// the column existed. The runner plans those, then claims due runs one row at
+// a time; see src/cron/runner.js.
 
-export async function findDueOneShots() {
+export async function findUnscheduledJobs() {
   const res = await adminQuery(
-    `SELECT * FROM cron_jobs
-      WHERE enabled = true AND run_at IS NOT NULL AND run_at <= NOW()`,
+    `SELECT id, expression, run_at, timezone, updated_at FROM cron_jobs
+      WHERE enabled AND next_run_at IS NULL`,
   );
   return res.rows;
+}
+
+// The updated_at guard keeps a plan computed from a stale row from landing
+// on top of an edit that happened in between; that edit gets planned on the
+// next tick instead. updated_at holds microseconds and the JS Date read back
+// only milliseconds, hence the truncation. next_run_at itself is only ever
+// written from JS Dates, so it holds milliseconds and claimDueRun can match
+// it exactly.
+export async function planNextRun(job, nextRunAt) {
+  await adminQuery(
+    `UPDATE cron_jobs SET next_run_at = $1
+      WHERE id = $2 AND next_run_at IS NULL
+        AND date_trunc('milliseconds', updated_at) = $3`,
+    [nextRunAt, job.id, job.updated_at],
+  );
+}
+
+export async function findDueJobs() {
+  const res = await adminQuery(
+    `SELECT id, run_at, expression, timezone, next_run_at FROM cron_jobs
+      WHERE enabled AND next_run_at <= NOW()`,
+  );
+  return res.rows;
+}
+
+// Atomically takes ownership of one due run: only the caller whose UPDATE
+// still sees the next_run_at it read gets the row back, so a run can never be
+// started twice — not by an overlapping tick, not by a second instance. A
+// one-shot is disabled in the same statement; a recurring job moves on to
+// nextRunAt.
+export async function claimDueRun(job, nextRunAt) {
+  const res = await adminQuery(
+    `UPDATE cron_jobs
+        SET next_run_at = $1,
+            enabled     = enabled AND run_at IS NULL
+      WHERE id = $2 AND enabled AND next_run_at = $3
+      RETURNING *`,
+    [nextRunAt, job.id, job.next_run_at],
+  );
+  return res.rows[0] || null;
 }

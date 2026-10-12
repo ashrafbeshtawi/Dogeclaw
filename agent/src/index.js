@@ -7,7 +7,7 @@ import { shutdown as shutdownPools } from './db/pool.js';
 import { runMigrations } from './db/migrate.js';
 import { ToolRegistry } from './tools/index.js';
 import { Agent } from './agent.js';
-import { CronRunner, setActiveCronRunner } from './cron/runner.js';
+import { CronRunner } from './cron/runner.js';
 import { EventLogCleanup } from './cron/logCleanup.js';
 import { TelegramManager } from './channels/telegram.js';
 import { McpManager } from './mcp/client.js';
@@ -63,8 +63,6 @@ async function main() {
   setTelegramManager(telegram);
 
   const cronRunner = new CronRunner(agent, telegram);
-  setActiveCronRunner(cronRunner);
-
   // Web server
   const app = createWebServer(agent);
 

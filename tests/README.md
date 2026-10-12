@@ -32,7 +32,7 @@ purges those rows before each run.
 | `specs/agents.spec.js` | agent CRUD + cross-tab dropdown |
 | `specs/skills.spec.js` | skill CRUD + agent assignment |
 | `specs/channels.spec.js` | channel CRUD |
-| `specs/crons.spec.js` | cron CRUD, validation, FK cascade |
+| `specs/crons.spec.js` | cron CRUD, validation, runner planning and one-shot claim, FK cascade |
 | `specs/settings.spec.js` | timezone select, persistence, cron-modal default |
 | `specs/sessions.spec.js` | chat UI session list + cron-warning dialog |
 | `specs/tool-calls.spec.js` | chat UI tool calls: per-call rows, trimmed args/results, detail modal (history + live stream) |

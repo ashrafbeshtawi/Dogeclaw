@@ -1,6 +1,5 @@
 import express from 'express';
 import { adminQuery as query } from '../../db/pool.js';
-import { reloadCronJobs } from '../../cron/runner.js';
 import { reloadTelegram } from '../managers.js';
 
 // Mounted under /api behind authMiddleware in server.js; no per-route guards needed.
@@ -42,8 +41,6 @@ export function agentsRoutes() {
     await query('DELETE FROM agents WHERE id = $1', [req.params.id]);
     res.json({ ok: true });
     reloadTelegram();
-    // Agents cascade to cron_jobs via FK; refresh the runner so it drops them.
-    reloadCronJobs();
   });
 
   return router;

@@ -1,6 +1,5 @@
 import express from 'express';
 import { listJobs as listCronJobs, getJob as getCronJob, createJob as createCronJob, updateJob as updateCronJob, deleteJob as deleteCronJob } from '../../db/crons.js';
-import { reloadCronJobs } from '../../cron/runner.js';
 
 // Mounted under /api behind authMiddleware in server.js; no per-route guards needed.
 export function cronsRoutes() {
@@ -32,7 +31,6 @@ export function cronsRoutes() {
         prompt,
         enabled,
       });
-      reloadCronJobs();
       res.json(job);
     } catch (err) {
       res.status(400).json({ error: err.message });
@@ -51,7 +49,6 @@ export function cronsRoutes() {
         enabled,
       });
       if (!job) return res.status(404).json({ error: 'not found' });
-      reloadCronJobs();
       res.json(job);
     } catch (err) {
       res.status(400).json({ error: err.message });
@@ -61,7 +58,6 @@ export function cronsRoutes() {
   router.delete('/cron-jobs/:id', async (req, res) => {
     const ok = await deleteCronJob(req.params.id);
     if (!ok) return res.status(404).json({ error: 'not found' });
-    reloadCronJobs();
     res.json({ ok: true });
   });
 

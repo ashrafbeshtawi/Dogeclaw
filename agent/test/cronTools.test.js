@@ -15,14 +15,13 @@ const job = (id, extra = {}) => ({
 });
 
 function makeDeps(jobs = []) {
-  const calls = { deleted: [], created: [], reloads: 0 };
+  const calls = { deleted: [], created: [] };
   const deps = {
     listJobs: async () => jobs,
     getJob: async (id) => jobs.find(j => j.id === id) || null,
     createJob: async (args) => { calls.created.push(args); return { id: 42, ...args }; },
     deleteJob: async (id) => { calls.deleted.push(id); },
     getTimezone: async () => 'Europe/Berlin',
-    reloadCronJobs: () => { calls.reloads++; },
   };
   return { deps, calls };
 }
@@ -73,13 +72,12 @@ test('getCron: foreign jobs and unknown ids read as not found; id required', asy
   assert.match((await h.getCron({}, tgCtx)).error, /id is required/);
 });
 
-test('removeCron: deletes owned jobs and reloads; refuses foreign jobs', async () => {
+test('removeCron: deletes owned jobs; refuses foreign jobs', async () => {
   const { deps, calls } = makeDeps([job(1), job(2, { channel_id: 7 })]);
   const h = makeCronHandlers(deps);
 
   assert.deepEqual(await h.removeCron({ id: 1 }, tgCtx), { removed: 1 });
   assert.deepEqual(calls.deleted, [1]);
-  assert.equal(calls.reloads, 1);
 
   assert.match((await h.removeCron({ id: 2 }, tgCtx)).error, /not found/);
   assert.deepEqual(calls.deleted, [1]); // untouched
