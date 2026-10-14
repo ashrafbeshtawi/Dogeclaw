@@ -1,6 +1,5 @@
 import { listJobs, createJob, deleteJob, getJob } from '../db/crons.js';
 import { getTimezone } from '../db/settings.js';
-import { reloadCronJobs } from '../cron/runner.js';
 import { makeCronHandlers } from '../lib/cronTools.js';
 
 // One flat tool per operation instead of a single tool with an action enum —
@@ -8,7 +7,7 @@ import { makeCronHandlers } from '../lib/cronTools.js';
 // as the db_* tools). Handlers live in lib/cronTools.js for testability.
 
 export function register(registry) {
-  const handlers = makeCronHandlers({ listJobs, getJob, createJob, deleteJob, getTimezone, reloadCronJobs });
+  const handlers = makeCronHandlers({ listJobs, getJob, createJob, deleteJob, getTimezone });
 
   registry.register('add_cron', {
     type: 'function',

@@ -8,8 +8,8 @@ import {
   findActiveTelegramSession,
 } from '../db/sessions.js';
 import { listJobs, getJob, deleteJob } from '../db/crons.js';
+import { ownsJob } from '../lib/cronOwnership.js';
 import { enqueue as enqueueMessage, claimBatch } from '../db/queue.js';
-import { reloadCronJobs } from '../cron/runner.js';
 import { withSessionLock } from '../lib/sessionLock.js';
 import { toModelConfig } from '../db/agentRuntime.js';
 import config from '../config.js';
@@ -402,20 +402,23 @@ export class TelegramManager {
   async #handleCronCommand(bot, msg, channel) {
     const parts = msg.text.trim().split(/\s+/);
     const chatId = String(msg.chat.id);
+    const chatContext = { channelId: channel.id, chatId };
 
     if (parts.length === 1) {
       const all = await listJobs();
-      const mine = all.filter(j => j.channel_id === channel.id && j.chat_id === chatId);
+      const mine = all.filter(j => ownsJob(j, chatContext));
       if (!mine.length) {
         return bot.sendMessage(msg.chat.id, 'No scheduled jobs for this chat.');
       }
       const lines = mine.map(j => {
-        const sched = j.expression ? `cron \`${j.expression}\`` : `at ${new Date(j.run_at).toISOString()}`;
-        const last = j.last_run_at
-          ? ` (last: ${j.last_status} ${new Date(j.last_run_at).toISOString()})`
+        const sched = j.schedule.kind === 'recurring'
+          ? `cron \`${j.schedule.expression}\``
+          : `at ${new Date(j.schedule.runAt).toISOString()}`;
+        const last = j.lastRunAt
+          ? ` (last: ${j.lastStatus} ${new Date(j.lastRunAt).toISOString()})`
           : '';
         const desc = j.description ? ` — ${j.description}` : '';
-        return `#${j.id}: ${sched}${desc}${last}\n  prompt: ${(j.prompt || '').slice(0, 80)}`;
+        return `#${j.id}: ${sched}${desc}${last}\n  prompt: ${j.prompt.slice(0, 80)}`;
       });
       return bot.sendMessage(msg.chat.id, `Scheduled jobs:\n${lines.join('\n\n')}`);
     }
@@ -425,11 +428,10 @@ export class TelegramManager {
       if (Number.isNaN(id)) return bot.sendMessage(msg.chat.id, 'Usage: /cron rm <id>');
       const job = await getJob(id);
       if (!job) return bot.sendMessage(msg.chat.id, `Job #${id} not found.`);
-      if (job.channel_id !== channel.id || job.chat_id !== chatId) {
+      if (!ownsJob(job, chatContext)) {
         return bot.sendMessage(msg.chat.id, `Job #${id} is not in this chat.`);
       }
       await deleteJob(id);
-      await reloadCronJobs();
       return bot.sendMessage(msg.chat.id, `Removed job #${id}.`);
     }
 

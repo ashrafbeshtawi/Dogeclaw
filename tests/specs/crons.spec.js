@@ -147,6 +147,42 @@ test.describe('cron jobs tab', () => {
     expect((await r.json()).error).toMatch(/invalid cron expression/i);
   });
 
+  test('API rejects a cron expression with missing fields and an unknown timezone', async ({ request }) => {
+    for (const [expression, timezone] of [['0 10 * *', 'UTC'], ['0 10 * * *', 'Mars/Olympus']]) {
+      const r = await request.post('/api/cron-jobs', {
+        data: { agent_id: agentId, channel_id: channelId, chat_id: '1', expression, timezone, prompt: 'x' },
+      });
+      expect(r.status()).toBe(400);
+      expect((await r.json()).error).toMatch(/invalid cron expression or timezone/i);
+    }
+  });
+
+  test('runner plans a recurring job and replans it after an edit', async ({ request }) => {
+    // Each step waits for the runner's next 15 s tick; two of them can
+    // outlast the default 30 s test timeout.
+    test.setTimeout(60_000);
+    const job = await (await request.post('/api/cron-jobs', {
+      data: { agent_id: agentId, channel_id: channelId, chat_id: '1', expression: '0 10 * * *', timezone: 'Europe/Berlin', prompt: 'pw-plan' },
+    })).json();
+    const readNextRun = () => psql(`SELECT COALESCE(next_run_at::text, '') FROM cron_jobs WHERE id = ${job.id};`);
+    await expect.poll(readNextRun, { timeout: 30_000 }).not.toBe('');
+
+    await request.put(`/api/cron-jobs/${job.id}`, { data: { expression: '0 17 * * *' } });
+    await expect.poll(readNextRun, { timeout: 30_000 }).toMatch(/ 1[56]:00:00\+00$/);
+  });
+
+  test('a due one-shot runs once and is disabled by its claim', async ({ request }) => {
+    test.setTimeout(45_000);
+    // The agent has no model, so the run fails its setup — enough to count it.
+    const job = await (await request.post('/api/cron-jobs', {
+      data: { agent_id: agentId, channel_id: channelId, chat_id: '1', run_at: new Date(Date.now() - 60_000).toISOString(), prompt: 'pw-once' },
+    })).json();
+    await expect.poll(
+      () => psql(`SELECT run_count || '|' || enabled || '|' || COALESCE(next_run_at::text, 'none') FROM cron_jobs WHERE id = ${job.id};`),
+      { timeout: 30_000 },
+    ).toBe('1|false|none');
+  });
+
   test('API rejects target without channel or session', async ({ request }) => {
     const r = await request.post('/api/cron-jobs', {
       data: {

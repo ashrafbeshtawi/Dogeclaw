@@ -209,6 +209,8 @@ Media is forwarded straight to the model when its `accepts` list covers the type
 ### Cron
 In-process cron scheduler. Both the agent (via the `schedule_cron` tool) and the admin UI can schedule recurring runs that hit a configured agent and (optionally) deliver the result to a Telegram chat.
 
+The schedule lives in Postgres: each job's `next_run_at` is checked every 15 seconds, and a run is claimed with a single guarded `UPDATE` before it starts, so it runs exactly once even across restarts or a second instance. A recurring run missed by more than 15 minutes (e.g. the container was down) is skipped; one-shots always fire.
+
 ### MCP (Model Context Protocol)
 Configure stdio MCP servers in the admin UI; their tools are dynamically registered alongside the built-ins, so the agent can use them without any code changes.
 

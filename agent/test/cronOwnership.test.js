@@ -7,8 +7,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ownsJob } from '../src/lib/cronOwnership.js';
 
-const tgJob = { channel_id: 3, chat_id: '42', session_id: null };
-const webJob = { channel_id: null, chat_id: null, session_id: 'web-abc' };
+const tgJob = { target: { kind: 'telegram', channelId: 3, chatId: '42' } };
+const webJob = { target: { kind: 'session', sessionId: 'web-abc' } };
 
 test('telegram job matches its own channel+chat', () => {
   assert.equal(ownsJob(tgJob, { channelId: 3, chatId: '42' }), true);
@@ -37,8 +37,8 @@ test('telegram job is not owned by a web session context (and vice versa)', () =
 });
 
 test('telegram context with a sessionId still matches via channel+chat', () => {
-  // telegram.js passes channelId, chatId AND the resolved sessionId; the
-  // job row itself has session_id null, so ownership comes from the chat.
+  // telegram.js passes channelId, chatId AND the resolved sessionId; a
+  // telegram job has no session, so ownership comes from the chat.
   assert.equal(ownsJob(tgJob, { channelId: 3, chatId: '42', sessionId: 'tg-session' }), true);
 });
 

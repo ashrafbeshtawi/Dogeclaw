@@ -6,23 +6,33 @@ import assert from 'node:assert/strict';
 import { makeCronHandlers } from '../src/lib/cronTools.js';
 
 const tgCtx = { agentId: 1, channelId: 5, chatId: '99' };
+const tgTarget = { kind: 'telegram', channelId: 5, chatId: '99' };
 const job = (id, extra = {}) => ({
-  id, channel_id: 5, chat_id: '99', session_id: null,
-  expression: '0 9 * * *', run_at: null, timezone: 'UTC',
+  id, target: tgTarget,
+  schedule: { kind: 'recurring', expression: '0 9 * * *' }, timezone: 'UTC',
   description: `job ${id}`, prompt: `prompt ${id}`, enabled: true,
-  last_run_at: null, last_status: null, last_error: null, run_count: 0,
+  lastRunAt: null, lastStatus: null, lastError: null, runCount: 0, createdAt: null,
   ...extra,
+});
+// What the fake createJob hands back: the stored shape, like db/crons.js.
+const toStoredJob = args => job(42, {
+  target: args.sessionId
+    ? { kind: 'session', sessionId: args.sessionId }
+    : { kind: 'telegram', channelId: args.channelId, chatId: args.chatId },
+  schedule: args.runAt
+    ? { kind: 'oneShot', runAt: args.runAt }
+    : { kind: 'recurring', expression: args.expression },
+  prompt: args.prompt,
 });
 
 function makeDeps(jobs = []) {
-  const calls = { deleted: [], created: [], reloads: 0 };
+  const calls = { deleted: [], created: [] };
   const deps = {
     listJobs: async () => jobs,
     getJob: async (id) => jobs.find(j => j.id === id) || null,
-    createJob: async (args) => { calls.created.push(args); return { id: 42, ...args }; },
+    createJob: async (args) => { calls.created.push(args); return toStoredJob(args); },
     deleteJob: async (id) => { calls.deleted.push(id); },
     getTimezone: async () => 'Europe/Berlin',
-    reloadCronJobs: () => { calls.reloads++; },
   };
   return { deps, calls };
 }
@@ -30,8 +40,8 @@ function makeDeps(jobs = []) {
 test('listCrons: only jobs of the calling conversation, paginated with next_offset', async () => {
   const jobs = [
     ...Array.from({ length: 25 }, (_, i) => job(i + 1)),
-    job(100, { channel_id: 7 }),                       // foreign channel
-    job(101, { channel_id: null, session_id: 'web' }), // foreign session
+    job(100, { target: { ...tgTarget, channelId: 7 } }),        // foreign channel
+    job(101, { target: { kind: 'session', sessionId: 'web' } }), // foreign session
   ];
   const { deps } = makeDeps(jobs);
   const h = makeCronHandlers(deps);
@@ -66,20 +76,19 @@ test('listCrons: long prompts are previewed, get_cron returns them in full', asy
 });
 
 test('getCron: foreign jobs and unknown ids read as not found; id required', async () => {
-  const { deps } = makeDeps([job(1, { channel_id: 7 })]);
+  const { deps } = makeDeps([job(1, { target: { ...tgTarget, channelId: 7 } })]);
   const h = makeCronHandlers(deps);
   assert.match((await h.getCron({ id: 1 }, tgCtx)).error, /not found/);
   assert.match((await h.getCron({ id: 999 }, tgCtx)).error, /not found/);
   assert.match((await h.getCron({}, tgCtx)).error, /id is required/);
 });
 
-test('removeCron: deletes owned jobs and reloads; refuses foreign jobs', async () => {
-  const { deps, calls } = makeDeps([job(1), job(2, { channel_id: 7 })]);
+test('removeCron: deletes owned jobs; refuses foreign jobs', async () => {
+  const { deps, calls } = makeDeps([job(1), job(2, { target: { ...tgTarget, channelId: 7 } })]);
   const h = makeCronHandlers(deps);
 
   assert.deepEqual(await h.removeCron({ id: 1 }, tgCtx), { removed: 1 });
   assert.deepEqual(calls.deleted, [1]);
-  assert.equal(calls.reloads, 1);
 
   assert.match((await h.removeCron({ id: 2 }, tgCtx)).error, /not found/);
   assert.deepEqual(calls.deleted, [1]); // untouched
@@ -98,8 +107,10 @@ test('addCron: binds to the calling conversation and defaults the timezone', asy
   });
 
   const web = await h.addCron({ run_at: '2026-10-01T07:00:00Z', prompt: 'p' }, { agentId: 1, sessionId: 'web-1' });
-  assert.equal(web.created.sessionId, 'web-1');
-  assert.equal(web.created.channelId, null);
+  assert.equal(calls.created[1].sessionId, 'web-1');
+  assert.equal(calls.created[1].channelId, null);
+  assert.equal(web.created.run_at, '2026-10-01T07:00:00Z');
+  assert.equal(web.created.expression, null);
 });
 
 test('addCron: validation errors before any write', async () => {

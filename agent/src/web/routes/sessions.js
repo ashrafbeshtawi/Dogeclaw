@@ -1,7 +1,6 @@
 import express from 'express';
 import { adminQuery as query } from '../../db/pool.js';
 import { loadSession, listSessions, deleteSession } from '../../db/sessions.js';
-import { reloadCronJobs } from '../../cron/runner.js';
 
 // Mounted under /api behind authMiddleware in server.js; no per-route guards needed.
 export function sessionsRoutes() {
@@ -37,8 +36,6 @@ export function sessionsRoutes() {
   router.delete('/sessions/:id', async (req, res) => {
     const ok = await deleteSession(req.params.id);
     if (!ok) return res.status(404).json({ error: 'not found' });
-    // Crons with session_id = $1 are cascaded by the FK; refresh the runner.
-    reloadCronJobs();
     res.json({ ok: true });
   });
 

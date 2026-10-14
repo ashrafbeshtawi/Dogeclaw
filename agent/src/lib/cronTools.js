@@ -17,23 +17,35 @@ const PROMPT_PREVIEW_LEN = 120;
 // tool-result cap, and the model read the cut-off tail as "these jobs don't
 // exist". get_cron returns the full prompt.
 function toJobSummary(j) {
+  const { last_error, created_at, ...summary } = toJobDetail(j);
   return {
-    id: j.id,
-    expression: j.expression,
-    run_at: j.run_at,
-    timezone: j.timezone,
-    description: j.description,
-    prompt: (j.prompt || '').length > PROMPT_PREVIEW_LEN
+    ...summary,
+    prompt: j.prompt.length > PROMPT_PREVIEW_LEN
       ? `${j.prompt.slice(0, PROMPT_PREVIEW_LEN)}…`
       : j.prompt,
-    enabled: j.enabled,
-    last_run_at: j.last_run_at,
-    last_status: j.last_status,
-    run_count: j.run_count,
   };
 }
 
-export function makeCronHandlers({ listJobs, getJob, createJob, deleteJob, getTimezone, reloadCronJobs }) {
+// What get_cron and add_cron hand the model: the schedule and run state in
+// the same snake_case the tool parameters use, without the delivery target.
+function toJobDetail(j) {
+  return {
+    id: j.id,
+    expression: j.schedule.kind === 'recurring' ? j.schedule.expression : null,
+    run_at: j.schedule.kind === 'oneShot' ? j.schedule.runAt : null,
+    timezone: j.timezone,
+    description: j.description,
+    prompt: j.prompt,
+    enabled: j.enabled,
+    last_run_at: j.lastRunAt,
+    last_status: j.lastStatus,
+    last_error: j.lastError,
+    run_count: j.runCount,
+    created_at: j.createdAt,
+  };
+}
+
+export function makeCronHandlers({ listJobs, getJob, createJob, deleteJob, getTimezone }) {
   return {
     async addCron({ expression, run_at, timezone, description, prompt }, context = {}) {
       if (!prompt) return { error: 'prompt is required' };
@@ -57,8 +69,7 @@ export function makeCronHandlers({ listJobs, getJob, createJob, deleteJob, getTi
           description: description || '',
           prompt,
         });
-        reloadCronJobs();
-        return { created: job };
+        return { created: toJobDetail(job) };
       } catch (err) {
         return { error: err.message };
       }
@@ -81,20 +92,7 @@ export function makeCronHandlers({ listJobs, getJob, createJob, deleteJob, getTi
       if (id == null) return { error: 'id is required' };
       const job = await getJob(id);
       if (!job || !ownsJob(job, context)) return { error: `Job ${id} not found` };
-      return {
-        id: job.id,
-        expression: job.expression,
-        run_at: job.run_at,
-        timezone: job.timezone,
-        description: job.description,
-        prompt: job.prompt,
-        enabled: job.enabled,
-        last_run_at: job.last_run_at,
-        last_status: job.last_status,
-        last_error: job.last_error,
-        run_count: job.run_count,
-        created_at: job.created_at,
-      };
+      return toJobDetail(job);
     },
 
     async removeCron({ id } = {}, context = {}) {
@@ -102,7 +100,6 @@ export function makeCronHandlers({ listJobs, getJob, createJob, deleteJob, getTi
       const job = await getJob(id);
       if (!job || !ownsJob(job, context)) return { error: `Job ${id} not found` };
       await deleteJob(id);
-      reloadCronJobs();
       return { removed: id };
     },
   };
