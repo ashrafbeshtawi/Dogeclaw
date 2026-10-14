@@ -1,5 +1,5 @@
 import express from 'express';
-import { listJobs as listCronJobs, getJob as getCronJob, createJob as createCronJob, updateJob as updateCronJob, deleteJob as deleteCronJob } from '../../db/crons.js';
+import { listJobs as listCronJobs, getJob as getCronJob, createJob as createCronJob, updateJob as updateCronJob, deleteJob as deleteCronJob, toJobResponse } from '../../db/crons.js';
 
 // Mounted under /api behind authMiddleware in server.js; no per-route guards needed.
 export function cronsRoutes() {
@@ -7,13 +7,13 @@ export function cronsRoutes() {
 
   // --- Cron jobs CRUD ---
   router.get('/cron-jobs', async (req, res) => {
-    res.json({ jobs: await listCronJobs() });
+    res.json({ jobs: (await listCronJobs()).map(toJobResponse) });
   });
 
   router.get('/cron-jobs/:id', async (req, res) => {
     const job = await getCronJob(req.params.id);
     if (!job) return res.status(404).json({ error: 'not found' });
-    res.json(job);
+    res.json(toJobResponse(job));
   });
 
   router.post('/cron-jobs', async (req, res) => {
@@ -31,7 +31,7 @@ export function cronsRoutes() {
         prompt,
         enabled,
       });
-      res.json(job);
+      res.json(toJobResponse(job));
     } catch (err) {
       res.status(400).json({ error: err.message });
     }
@@ -49,7 +49,7 @@ export function cronsRoutes() {
         enabled,
       });
       if (!job) return res.status(404).json({ error: 'not found' });
-      res.json(job);
+      res.json(toJobResponse(job));
     } catch (err) {
       res.status(400).json({ error: err.message });
     }

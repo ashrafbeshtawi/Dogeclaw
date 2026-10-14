@@ -19,14 +19,12 @@ import { adminQuery } from '../db/pool.js';
 import { insertEventLog } from '../db/eventLogs.js';
 
 const TICK_MS = 15_000;
-// A recurring run found due later than this (the process was down over its
-// slot) is skipped rather than fired late; the job just moves on to its next
-// slot. One-shots always fire, however late — they happen only once.
-const MAX_LATENESS_MS = 15 * 60_000;
 
 // The schedule lives only in cron_jobs.next_run_at. Every tick plans the
 // jobs that have no next run yet and claims the ones that are due; edits
 // through db/crons.js take effect on the next tick without any reload.
+// A run found due late (the process was down over its slot) still fires,
+// once: the next run is planned from now, so missed slots never pile up.
 export class CronRunner {
   #agent;
   #telegramManager;
@@ -55,9 +53,10 @@ export class CronRunner {
   async #planUnscheduledJobs() {
     for (const job of await findUnscheduledJobs()) {
       try {
-        const nextRunAt = job.run_at
-          ? new Date(job.run_at)
-          : computeNextCronRun(job.expression, job.timezone, job.updated_at);
+        const { schedule } = job;
+        const nextRunAt = schedule.kind === 'oneShot'
+          ? new Date(schedule.runAt)
+          : computeNextCronRun(schedule.expression, job.timezone, job.updatedAt);
         await planNextRun(job, nextRunAt);
       } catch (err) {
         console.error(`[cron] job ${job.id} cannot be planned:`, err.message);
@@ -69,14 +68,12 @@ export class CronRunner {
     const now = new Date();
     for (const job of await findDueJobs()) {
       try {
-        const nextRunAt = job.run_at ? null : computeNextCronRun(job.expression, job.timezone, now);
+        const { schedule } = job;
+        const nextRunAt = schedule.kind === 'oneShot'
+          ? null
+          : computeNextCronRun(schedule.expression, job.timezone, now);
         const claimed = await claimDueRun(job, nextRunAt);
         if (!claimed) continue;
-        const lateness = now - job.next_run_at;
-        if (!job.run_at && lateness > MAX_LATENESS_MS) {
-          console.warn(`[cron] job ${job.id} skipped its ${job.next_run_at.toISOString()} run, found ${Math.round(lateness / 60_000)} min late`);
-          continue;
-        }
         this.#dispatch(claimed).catch(err =>
           console.error(`[cron] job ${job.id} dispatch:`, err.message),
         );
@@ -89,8 +86,9 @@ export class CronRunner {
   // `job` is the row as claimed, so a one-shot arrives already disabled.
   async #dispatch(job) {
     const jobId = job.id;
-    const isTelegram = !!job.chat_id;
-    const isOneShot = !!job.run_at;
+    const { target } = job;
+    const isTelegram = target.kind === 'telegram';
+    const isOneShot = job.schedule.kind === 'oneShot';
     let sessionId;
     let channelRow = null;
     const startedAt = Date.now();
@@ -102,19 +100,19 @@ export class CronRunner {
     console.log(`[cron] job ${jobId} input: ${job.prompt}`);
 
     try {
-      const runtime = await loadAgentRuntime(job.agent_id);
-      if (!runtime) throw new Error(`agent ${job.agent_id} not found`);
-      if (!runtime.modelConfig) throw new Error(`agent ${job.agent_id} has no model assigned`);
+      const runtime = await loadAgentRuntime(job.agentId);
+      if (!runtime) throw new Error(`agent ${job.agentId} not found`);
+      if (!runtime.modelConfig) throw new Error(`agent ${job.agentId} has no model assigned`);
       const agentRow = runtime.agent;
 
       if (isTelegram) {
-        const cRes = await adminQuery('SELECT id, name FROM channels WHERE id = $1', [job.channel_id]);
+        const cRes = await adminQuery('SELECT id, name FROM channels WHERE id = $1', [target.channelId]);
         channelRow = cRes.rows[0];
-        if (!channelRow) throw new Error(`channel ${job.channel_id} not found`);
-        sessionId = await findActiveTelegramSession(job.channel_id, job.chat_id);
-        if (!sessionId) sessionId = `tg-${channelRow.name}-${job.chat_id}`;
+        if (!channelRow) throw new Error(`channel ${target.channelId} not found`);
+        sessionId = await findActiveTelegramSession(target.channelId, target.chatId);
+        if (!sessionId) sessionId = `tg-${channelRow.name}-${target.chatId}`;
       } else {
-        sessionId = job.session_id;
+        sessionId = target.sessionId;
       }
 
       // Everything above is setup that fails the same way every time, so it
@@ -131,19 +129,19 @@ export class CronRunner {
         attempts = attempt;
         await withSessionLock(sessionId, async () => {
           await ensureSession(sessionId, {
-            agentId: job.agent_id,
+            agentId: job.agentId,
             agentName: agentRow.name,
             source: isTelegram ? 'telegram' : 'web',
-            channelId: isTelegram ? job.channel_id : null,
+            channelId: isTelegram ? target.channelId : null,
             channelName: channelRow?.name || null,
-            chatId: isTelegram ? String(job.chat_id) : null,
+            chatId: isTelegram ? target.chatId : null,
           });
 
           const triggerLines = [
             'This is a scheduled run that you set up earlier.',
             `Job id: ${job.id}.`,
             ...(job.description ? [`Job description: ${job.description}.`] : []),
-            `Run number: ${job.run_count + 1}.`,
+            `Run number: ${job.runCount + 1}.`,
             `Instruction: ${job.prompt}`,
             'Respond directly to the user as if you initiated the message. Do not mention this trigger.',
           ];
@@ -152,10 +150,10 @@ export class CronRunner {
           const { messages: history } = await loadSession(sessionId);
 
           const result = await this.#agent.run('', history, {
-            agentId: job.agent_id,
+            agentId: job.agentId,
             agentName: agentRow.name,
-            channelId: isTelegram ? job.channel_id : null,
-            chatId: isTelegram ? String(job.chat_id) : null,
+            channelId: isTelegram ? target.channelId : null,
+            chatId: isTelegram ? target.chatId : null,
             sessionId,
             systemPrompt: agentRow.system_prompt,
             modelConfig: runtime.modelConfig,
@@ -173,7 +171,7 @@ export class CronRunner {
 
           if (isTelegram && this.#telegramManager && content) {
             try {
-              await this.#telegramManager.sendMessageVia(job.channel_id, job.chat_id, content);
+              await this.#telegramManager.sendMessageVia(target.channelId, target.chatId, content);
             } catch (err) {
               console.error(`[cron] telegram push for job ${job.id}:`, err.message);
             }
@@ -195,10 +193,10 @@ export class CronRunner {
         output: assistantContent,
         durationMs: Date.now() - startedAt,
         meta: {
-          agent_id: job.agent_id,
+          agent_id: job.agentId,
           session_id: sessionId,
-          channel_id: isTelegram ? job.channel_id : null,
-          chat_id: isTelegram ? String(job.chat_id) : null,
+          channel_id: isTelegram ? target.channelId : null,
+          chat_id: isTelegram ? target.chatId : null,
           one_shot: isOneShot,
           attempts,
         },
@@ -215,10 +213,10 @@ export class CronRunner {
         error: err.message,
         durationMs: Date.now() - startedAt,
         meta: {
-          agent_id: job.agent_id,
+          agent_id: job.agentId,
           session_id: sessionId,
-          channel_id: isTelegram ? job.channel_id : null,
-          chat_id: isTelegram ? String(job.chat_id) : null,
+          channel_id: isTelegram ? target.channelId : null,
+          chat_id: isTelegram ? target.chatId : null,
           one_shot: isOneShot,
           attempts,
         },

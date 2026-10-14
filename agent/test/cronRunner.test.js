@@ -11,24 +11,24 @@ import { CronExpressionParser } from 'cron-parser';
 let rows = [];
 const startedRuns = [];
 
-const copyRow = row => ({ ...row });
+const copyRow = row => structuredClone(row);
 
 mock.module('../src/db/crons.js', {
   namedExports: {
     computeNextCronRun: (expression, tz, from) =>
       CronExpressionParser.parse(expression, { tz, currentDate: from }).next().toDate(),
-    findUnscheduledJobs: async () => rows.filter(r => r.enabled && !r.next_run_at).map(copyRow),
+    findUnscheduledJobs: async () => rows.filter(r => r.enabled && !r.nextRunAt).map(copyRow),
     planNextRun: async (job, nextRunAt) => {
       const row = rows.find(r => r.id === job.id);
-      if (!row.next_run_at) row.next_run_at = nextRunAt;
+      if (!row.nextRunAt) row.nextRunAt = nextRunAt;
     },
-    findDueJobs: async () => rows.filter(r => r.enabled && r.next_run_at <= new Date()).map(copyRow),
+    findDueJobs: async () => rows.filter(r => r.enabled && r.nextRunAt <= new Date()).map(copyRow),
     claimDueRun: async (job, nextRunAt) => {
       await new Promise(r => setImmediate(r));
       const row = rows.find(r => r.id === job.id);
-      if (!row.enabled || row.next_run_at?.getTime() !== job.next_run_at.getTime()) return null;
-      row.next_run_at = nextRunAt;
-      row.enabled = row.enabled && !row.run_at;
+      if (!row.enabled || row.nextRunAt?.getTime() !== job.nextRunAt.getTime()) return null;
+      row.nextRunAt = nextRunAt;
+      row.enabled = row.enabled && row.schedule.kind === 'recurring';
       return copyRow(row);
     },
     // Every started run ends here: the mocked agent runtime is missing, so
@@ -48,8 +48,15 @@ const { CronRunner } = await import('../src/cron/runner.js');
 const MINUTE = 60_000;
 const minutesAgo = n => new Date(Date.now() - n * MINUTE);
 
+const recurring = expression => ({ kind: 'recurring', expression });
+const oneShot = runAt => ({ kind: 'oneShot', runAt });
+
 function makeJob(overrides) {
-  return { enabled: true, expression: null, run_at: null, timezone: 'Europe/Berlin', next_run_at: null, updated_at: new Date(), ...overrides };
+  return {
+    enabled: true, timezone: 'Europe/Berlin', nextRunAt: null, updatedAt: new Date(), runCount: 0,
+    target: { kind: 'session', sessionId: 'web-1' },
+    ...overrides,
+  };
 }
 
 // One tick: start() runs it immediately; stop() clears the interval.
@@ -69,38 +76,38 @@ test('plans recurring jobs from updated_at and one-shots at run_at', async () =>
   const runAt = new Date(Date.now() + 60 * MINUTE);
   const updatedAt = new Date();
   resetTable([
-    makeJob({ id: 1, expression: '0 10 * * *', updated_at: updatedAt }),
-    makeJob({ id: 2, run_at: runAt }),
+    makeJob({ id: 1, schedule: recurring('0 10 * * *'), updatedAt }),
+    makeJob({ id: 2, schedule: oneShot(runAt) }),
   ]);
   await runOneTick();
   const expected = CronExpressionParser.parse('0 10 * * *', { tz: 'Europe/Berlin', currentDate: updatedAt }).next().toDate();
-  assert.equal(rows[0].next_run_at.getTime(), expected.getTime());
-  assert.equal(rows[1].next_run_at.getTime(), runAt.getTime());
+  assert.equal(rows[0].nextRunAt.getTime(), expected.getTime());
+  assert.equal(rows[1].nextRunAt.getTime(), runAt.getTime());
   assert.deepEqual(startedRuns, []);
 });
 
 test('a due run starts once when two runners tick at the same time', async () => {
-  resetTable([makeJob({ id: 1, expression: '0 10 * * *', next_run_at: minutesAgo(1) })]);
+  resetTable([makeJob({ id: 1, schedule: recurring('0 10 * * *'), nextRunAt: minutesAgo(1) })]);
   await Promise.all([runOneTick(), runOneTick()]);
   assert.deepEqual(startedRuns, [1]);
-  assert.ok(rows[0].next_run_at > new Date());
+  assert.ok(rows[0].nextRunAt > new Date());
 });
 
 test('a one-shot is disabled by its claim and never starts again', async () => {
-  resetTable([makeJob({ id: 1, run_at: minutesAgo(1), next_run_at: minutesAgo(1) })]);
+  resetTable([makeJob({ id: 1, schedule: oneShot(minutesAgo(1)), nextRunAt: minutesAgo(1) })]);
   await runOneTick();
   await runOneTick();
   assert.deepEqual(startedRuns, [1]);
   assert.equal(rows[0].enabled, false);
 });
 
-test('a late one-shot still starts; a recurring run found too late is skipped', async () => {
+test('late runs start once, however late, and a recurring job moves on from now', async () => {
   resetTable([
-    makeJob({ id: 1, run_at: minutesAgo(120), next_run_at: minutesAgo(120) }),
-    makeJob({ id: 2, expression: '0 10 * * *', next_run_at: minutesAgo(16) }),
-    makeJob({ id: 3, expression: '0 17 * * *', next_run_at: minutesAgo(14) }),
+    makeJob({ id: 1, schedule: oneShot(minutesAgo(120)), nextRunAt: minutesAgo(120) }),
+    makeJob({ id: 2, schedule: recurring('*/5 * * * *'), nextRunAt: minutesAgo(3 * 24 * 60) }),
   ]);
   await runOneTick();
-  assert.deepEqual(startedRuns.sort(), [1, 3]);
-  assert.ok(rows[1].next_run_at > new Date(), 'the skipped job moves on to its next slot');
+  await runOneTick();
+  assert.deepEqual(startedRuns.sort(), [1, 2]);
+  assert.ok(rows[1].nextRunAt > new Date(), 'missed slots are not replayed');
 });
