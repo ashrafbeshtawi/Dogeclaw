@@ -16,7 +16,7 @@
 //                it. Providers that require a JSON string stringify on the way
 //                out and parse on the way back in.
 //   tool_call_id tool results only: the id of the call being answered
-//   images       user only: array of base64 strings
+//   images       user only: array of base64 strings, no mime — see imageMime
 //   audio/video  user only: base64 string, with audioMime / videoMime
 //
 // Anything prefixed with `_` is a provider's private side channel. It must
@@ -30,6 +30,22 @@
 //
 // Adding a provider means adding a conversion in both directions, not
 // widening this shape.
+
+// The internal shape carries bare base64 with no type, and OpenRouter's data
+// URL needs one. The four formats it accepts start with distinct bytes that
+// survive as distinct base64 prefixes; anything else is called png, which is
+// what every provider assumed before this existed.
+const IMAGE_SIGNATURES = [
+  ['/9j/', 'image/jpeg'],
+  ['R0lGOD', 'image/gif'],
+  ['UklGR', 'image/webp'],
+  ['iVBORw0KGgo', 'image/png'],
+];
+
+/** Mime type of a base64-encoded image, read off its magic bytes. */
+export function imageMime(base64) {
+  return IMAGE_SIGNATURES.find(([sig]) => base64.startsWith(sig))?.[1] || 'image/png';
+}
 
 /** Drops `_`-prefixed side channels so a provider never leaks them to the wire. */
 export function stripInternalFields(msg) {

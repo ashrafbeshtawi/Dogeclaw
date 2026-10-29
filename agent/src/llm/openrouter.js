@@ -1,7 +1,29 @@
+import { imageMime } from './message.js';
 import { assertOk, parseFrame, readLines } from './transport.js';
 
 const NAME = 'OpenRouter';
 const REFERER = 'https://dogeclaw.beshtawi.online';
+
+// OpenRouter reads media only from the OpenAI multipart shape: `content`
+// becomes an array of typed parts, text first. The docs want three different
+// encodings for the same bytes — images and video as data URLs, audio as raw
+// base64 beside a bare format name — so each type is spelled out here.
+function toOpenAIContent(m) {
+  if (!m.images?.length && !m.audio && !m.video) return m.content || '';
+  const parts = [];
+  if (m.content) parts.push({ type: 'text', text: m.content });
+  for (const img of m.images || []) {
+    parts.push({ type: 'image_url', image_url: { url: `data:${imageMime(img)};base64,${img}` } });
+  }
+  if (m.audio) {
+    const format = (m.audioMime || 'audio/ogg').split('/')[1].replace(/^x-/, '');
+    parts.push({ type: 'input_audio', input_audio: { data: m.audio, format } });
+  }
+  if (m.video) {
+    parts.push({ type: 'video_url', video_url: { url: `data:${m.videoMime || 'video/mp4'};base64,${m.video}` } });
+  }
+  return parts;
+}
 
 // OpenAI requires more of a tool call than the internal shape carries: every
 // call needs an `id` and an explicit `type`, its arguments must be a JSON
@@ -10,7 +32,7 @@ const REFERER = 'https://dogeclaw.beshtawi.online';
 // providers reject the whole request.
 function toOpenAIMessages(messages) {
   return messages.map(m => {
-    const msg = { role: m.role, content: m.content || '' };
+    const msg = { role: m.role, content: toOpenAIContent(m) };
     if (m.tool_calls) {
       msg.tool_calls = m.tool_calls.map((tc, i) => ({
         id: tc.id || `call_${i}`,
