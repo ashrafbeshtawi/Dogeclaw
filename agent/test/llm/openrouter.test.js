@@ -205,3 +205,29 @@ test('streaming: delta.reasoning emits thinking events and accumulates', async (
   assert.equal(res.thinking, 'thinking…');
   assert.equal(res.content, 'answer');
 });
+
+test('media becomes multipart content in the documented shape, text first', async () => {
+  const png = 'iVBORw0KGgoAAAANSUhEUg';
+  const jpeg = '/9j/4AAQSkZJRg';
+  const { seen, restore } = capture(OK);
+  try {
+    await chat([{
+      role: 'user', content: 'look', images: [png, jpeg],
+      audio: 'AUD', audioMime: 'audio/ogg', video: 'VID', videoMime: 'video/mp4',
+    }], [], OPTS);
+  } finally { restore(); }
+
+  assert.deepEqual(seen.body.messages[0].content, [
+    { type: 'text', text: 'look' },
+    { type: 'image_url', image_url: { url: `data:image/png;base64,${png}` } },
+    { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${jpeg}` } },
+    { type: 'input_audio', input_audio: { data: 'AUD', format: 'ogg' } },
+    { type: 'video_url', video_url: { url: 'data:video/mp4;base64,VID' } },
+  ]);
+});
+
+test('text-only messages keep string content', async () => {
+  const { seen, restore } = capture(OK);
+  try { await chat(conversation(), [], OPTS); } finally { restore(); }
+  assert.ok(seen.body.messages.every(m => typeof m.content === 'string'));
+});

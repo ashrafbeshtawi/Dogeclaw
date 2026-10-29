@@ -1,3 +1,4 @@
+import { imageMime } from './message.js';
 import { assertOk, parseFrame, readLines } from './transport.js';
 
 const NAME = 'Google';
@@ -48,8 +49,7 @@ function toGeminiContents(messages) {
     }
     if (m.images?.length) {
       for (const img of m.images) {
-        // Base64 string; mime sniffing is the operator's problem at upload.
-        parts.push({ inline_data: { mime_type: 'image/png', data: img } });
+        parts.push({ inline_data: { mime_type: imageMime(img), data: img } });
       }
     }
     if (m.tool_calls) {
