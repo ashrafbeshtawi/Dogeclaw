@@ -12,6 +12,7 @@ import { ownsJob } from '../lib/cronOwnership.js';
 import { enqueue as enqueueMessage, claimBatch } from '../db/queue.js';
 import { withSessionLock } from '../lib/sessionLock.js';
 import { toModelConfig } from '../db/agentRuntime.js';
+import { createMediaGroupBuffer, mergeMediaParts } from '../lib/mediaGroup.js';
 import config from '../config.js';
 
 const MAX_MSG_LEN = 4096;
@@ -168,6 +169,16 @@ export class TelegramManager {
       console.log(`[telegram] ${channel.name}: polling`);
     }
 
+    // Album parts collected by the message handler below; flushed as one
+    // merged turn against the live channel config.
+    bot.__mediaGroups = createMediaGroupBuffer({
+      onFlush: async (parts) => {
+        const current = this.#channelById.get(channelId) || channel;
+        const merged = mergeMediaParts(parts);
+        await this.#dispatch(bot, parts[0].msg, current, merged.text, merged.media, merged.mediaHints, merged.messageId);
+      },
+    });
+
     bot.on('message', async (msg) => {
       // Look up the LIVE channel config on every message. This is what makes
       // model swaps in the admin UI take effect without restarting the bot.
@@ -218,8 +229,8 @@ export class TelegramManager {
       try {
         // Photos / image-as-document. `msg.photo` is one image at multiple
         // resolutions (thumb / medium / large) — the last entry is highest-
-        // res. Media-group sends arrive as separate `message` events, each
-        // with its own `msg.photo`, so we handle them independently here.
+        // res. Media-group (album) sends arrive as separate `message` events,
+        // each with its own `msg.photo`; they're merged further down.
         const imageFileId = msg.photo
           ? msg.photo[msg.photo.length - 1].file_id
           : (msg.document?.mime_type?.startsWith('image/') ? msg.document.file_id : null);
@@ -262,25 +273,16 @@ export class TelegramManager {
         return;
       }
 
-      const hasAnything = textContent || media.images || media.audio || media.video || mediaHints.length;
-      if (!hasAnything) return;
-
-      if (current.response_mode === 'periodic') {
-        // The queue table only carries text + images. Audio/video bytes are
-        // dropped on this path; bake any media we won't be forwarding into
-        // the stored text as [Attached: X] hints so the batched run still
-        // knows the user attached something.
-        const queueHints = new Set(mediaHints);
-        if (media.audio) queueHints.add('audio');
-        if (media.video) queueHints.add('video');
-        const queueText = queueHints.size
-          ? [textContent, [...queueHints].map(t => `[Attached: ${t}]`).join(' ')].filter(Boolean).join('\n')
-          : textContent;
-        await this.#enqueue(current.id, msg, queueText, media.images);
+      // Album items arrive one event each; buffer them and dispatch the
+      // whole group as a single turn once the album stops arriving.
+      if (msg.media_group_id) {
+        bot.__mediaGroups.add(`${msg.chat.id}:${msg.media_group_id}`, {
+          msg, text: textContent, media, mediaHints, messageId: msg.message_id,
+        });
         return;
       }
 
-      await this.#handleMessage(bot, msg.chat.id, textContent, media, mediaHints, current, msg.message_id);
+      await this.#dispatch(bot, msg, current, textContent, media, mediaHints, msg.message_id);
     });
 
     this.#bots.set(channelId, bot);
@@ -294,6 +296,30 @@ export class TelegramManager {
     }).catch(err => {
       console.error(`[telegram] ${channel.name}: setMyCommands failed: ${err.message}`);
     });
+  }
+
+  // Routes one user turn (a single message or a merged album) to the
+  // periodic queue or straight to the agent.
+  async #dispatch(bot, msg, current, textContent, media, mediaHints, telegramMessageId) {
+    const hasAnything = textContent || media.images || media.audio || media.video || mediaHints.length;
+    if (!hasAnything) return;
+
+    if (current.response_mode === 'periodic') {
+      // The queue table only carries text + images. Audio/video bytes are
+      // dropped on this path; bake any media we won't be forwarding into
+      // the stored text as [Attached: X] hints so the batched run still
+      // knows the user attached something.
+      const queueHints = new Set(mediaHints);
+      if (media.audio) queueHints.add('audio');
+      if (media.video) queueHints.add('video');
+      const queueText = queueHints.size
+        ? [textContent, [...queueHints].map(t => `[Attached: ${t}]`).join(' ')].filter(Boolean).join('\n')
+        : textContent;
+      await this.#enqueue(current.id, msg, queueText, media.images);
+      return;
+    }
+
+    await this.#handleMessage(bot, msg.chat.id, textContent, media, mediaHints, current, telegramMessageId);
   }
 
   #armPeriodicTimer(bot, channel) {
@@ -489,6 +515,7 @@ export class TelegramManager {
     for (const bot of this.#bots.values()) {
       try { bot.stopPolling(); } catch {}
       if (bot.__periodicTimer) clearInterval(bot.__periodicTimer);
+      bot.__mediaGroups?.clear();
     }
     this.#bots.clear();
     this.#channelById.clear();
