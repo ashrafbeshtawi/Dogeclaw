@@ -148,7 +148,7 @@ The `dogeclaw` Postgres role is created with a default, well-known password (`do
 | `POSTGRES_DB` | yes | `dogeclaw` | Database name |
 | `DOGECLAW_WEB_USER` | yes | `admin` | Web UI login |
 | `DOGECLAW_WEB_PASSWORD` | yes | `changeme` | Web UI password |
-| `DOGECLAW_WEB_SECRET` | yes | — | Session secret (`openssl rand -hex 32`) |
+| `DOGECLAW_WEB_SECRET` | yes | — | Signs the login cookie (`openssl rand -hex 32`). Unset, shorter than 16 chars or a public default: a random secret is used per boot and logins do not survive a restart |
 | `DOGECLAW_PORT` | no | `3000` | HTTP port |
 | `DOGECLAW_OLLAMA_URL` | no | — | Base URL of an Ollama instance for local models |
 | `DOGECLAW_TELEGRAM_MODE` | no | `polling` | `polling` or `webhook` |

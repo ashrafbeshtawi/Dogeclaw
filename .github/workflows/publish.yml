@@ -64,8 +64,10 @@ jobs:
         working-directory: ./tests
         run: npx playwright install --with-deps chromium
 
+      # A fixed per-run secret: without one the agent picks a random secret per
+      # boot, and migrate.spec's `docker restart` would log the suite out.
       - name: Bring up the stack
-        run: docker compose up -d --build
+        run: DOGECLAW_WEB_SECRET=$(openssl rand -hex 32) docker compose up -d --build
 
       - name: Wait for the agent to come up
         run: |

@@ -40,7 +40,9 @@ services:
       - DOGECLAW_PORT=${DOGECLAW_PORT:-3000}
       - DOGECLAW_WEB_USER=${DOGECLAW_WEB_USER:-admin}
       - DOGECLAW_WEB_PASSWORD=${DOGECLAW_WEB_PASSWORD:-changeme}
-      - DOGECLAW_WEB_SECRET=${DOGECLAW_WEB_SECRET:-dogeclaw-change-me}
+      # No default on purpose: unset means a random secret per boot (logins
+      # do not survive a restart). Set it in .env to stay logged in.
+      - DOGECLAW_WEB_SECRET=${DOGECLAW_WEB_SECRET:-}
       # The agent derives both Postgres URLs (admin + restricted role) from
       # these primitives — see agent/src/lib/databaseUrls.js. The restricted
       # role's password is hardcoded there to mirror V2__create_role.sql.
