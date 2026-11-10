@@ -26,6 +26,10 @@ import { register as registerHistory } from './tools/history.js';
 
 async function main() {
   console.log('[dogeclaw] Starting...');
+  if (config.web.secretGenerated) {
+    console.warn('[dogeclaw] WARNING: DOGECLAW_WEB_SECRET is unset, shorter than 16 chars or a public default. '
+      + 'Using a random secret for this run: logins will not survive a restart. Set it with `openssl rand -hex 32`.');
+  }
 
   // Ensure workspace directories exist
   await mkdir(config.paths.files, { recursive: true });
