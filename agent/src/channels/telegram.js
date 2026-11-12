@@ -92,6 +92,9 @@ export class TelegramManager {
       if (!fresh || fresh.token !== bot.__channelToken) {
         try { await bot.stopPolling(); } catch {}
         if (bot.__periodicTimer) clearInterval(bot.__periodicTimer);
+        // A pending album would otherwise still flush, fall back to the
+        // stale captured channel and answer from a disabled channel.
+        bot.__mediaGroups?.clear();
         this.#bots.delete(id);
       }
     }
@@ -282,6 +285,9 @@ export class TelegramManager {
         return;
       }
 
+      // An album of this chat that is still in its quiet period goes first,
+      // so a follow-up like "what is in these?" reaches the agent after it.
+      await bot.__mediaGroups.flushPrefix(`${msg.chat.id}:`);
       await this.#dispatch(bot, msg, current, textContent, media, mediaHints, msg.message_id);
     });
 

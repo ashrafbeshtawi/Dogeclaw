@@ -11,6 +11,10 @@ export const MEDIA_GROUP_DELAY_MS = 1500;
 export function createMediaGroupBuffer({ delayMs = MEDIA_GROUP_DELAY_MS, onFlush }) {
   const groups = new Map(); // key -> { parts, timer }
 
+  const runFlush = parts => Promise.resolve()
+    .then(() => onFlush(parts))
+    .catch(err => console.error(`[media-group] flush failed: ${err.message}`));
+
   return {
     add(key, part) {
       let group = groups.get(key);
@@ -22,10 +26,22 @@ export function createMediaGroupBuffer({ delayMs = MEDIA_GROUP_DELAY_MS, onFlush
       clearTimeout(group.timer);
       group.timer = setTimeout(() => {
         groups.delete(key);
-        Promise.resolve()
-          .then(() => onFlush(group.parts))
-          .catch(err => console.error(`[media-group] flush failed: ${err.message}`));
+        runFlush(group.parts);
       }, delayMs);
+    },
+    // Flushes every pending group whose key starts with `prefix` right away,
+    // without waiting for the quiet period, and resolves once their onFlush
+    // calls are done. Used so a plain message sent after an album does not
+    // overtake the album.
+    async flushPrefix(prefix) {
+      const due = [];
+      for (const [key, group] of groups) {
+        if (!key.startsWith(prefix)) continue;
+        clearTimeout(group.timer);
+        groups.delete(key);
+        due.push(group.parts);
+      }
+      for (const parts of due) await runFlush(parts);
     },
     get size() {
       return groups.size;

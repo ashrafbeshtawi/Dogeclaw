@@ -49,6 +49,39 @@ test('clear() drops pending groups without flushing', async () => {
   assert.equal(flushes.length, 0);
 });
 
+test('flushPrefix flushes the pending album before a following message', async () => {
+  const order = [];
+  const buf = createMediaGroupBuffer({
+    delayMs: 1000,
+    onFlush: async (parts) => { await sleep(5); order.push(parts); },
+  });
+  buf.add('42:album', 'img1');
+  buf.add('42:album', 'img2');
+  await buf.flushPrefix('42:');
+  order.push('what is in these?');
+  assert.deepEqual(order, [['img1', 'img2'], 'what is in these?']);
+  assert.equal(buf.size, 0);
+});
+
+test('flushPrefix leaves other chats pending and does not flush twice', async () => {
+  const flushes = [];
+  const buf = createMediaGroupBuffer({ delayMs: 20, onFlush: parts => flushes.push(parts) });
+  buf.add('1:g', 'a');
+  buf.add('12:g', 'b');
+  await buf.flushPrefix('1:');
+  assert.deepEqual(flushes, [['a']]);
+  assert.equal(buf.size, 1);
+  await sleep(50);
+  assert.deepEqual(flushes, [['a'], ['b']]);
+});
+
+test('flushPrefix without a pending group does nothing', async () => {
+  const flushes = [];
+  const buf = createMediaGroupBuffer({ delayMs: 20, onFlush: parts => flushes.push(parts) });
+  await buf.flushPrefix('42:');
+  assert.equal(flushes.length, 0);
+});
+
 test('a throwing onFlush does not crash the process', async () => {
   const buf = createMediaGroupBuffer({ delayMs: 5, onFlush: async () => { throw new Error('boom'); } });
   buf.add('k', 1);
