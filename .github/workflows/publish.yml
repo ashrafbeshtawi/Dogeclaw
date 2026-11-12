@@ -24,7 +24,9 @@ permissions:
 jobs:
   test:
     name: Playwright
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest moved to 26.04, where Playwright 1.60 can't
+    # install Chromium's system dependencies.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
 
