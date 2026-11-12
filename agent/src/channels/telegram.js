@@ -46,7 +46,28 @@ export class TelegramManager {
 
   async start(expressApp) {
     this.#expressApp = expressApp;
+    // One webhook route for every channel, mounted once and before any
+    // setWebHook: it hands each update to whichever bot is live for that
+    // webhook_id right now. Per-bot routes could never be unmounted, so a
+    // disabled channel kept answering and, after a token rotation, the first
+    // (old) bot's route swallowed every update.
+    if (config.telegram.mode !== 'polling' && expressApp) {
+      expressApp.post('/webhook/:webhookId', (req, res) => {
+        this.#liveBotForWebhook(req.params.webhookId)?.processUpdate(req.body);
+        res.sendStatus(200);
+      });
+    }
     await this.reload();
+  }
+
+  // The running bot for a webhook path, or null when its channel is disabled,
+  // deleted or not started. Telegram gets a 200 either way, so it doesn't
+  // keep retrying an update nobody will handle.
+  #liveBotForWebhook(webhookId) {
+    for (const [id, channel] of this.#channelById) {
+      if (String(channel.webhook_id) === webhookId) return this.#bots.get(id) || null;
+    }
+    return null;
   }
 
   // Returns the current joined channel config the manager has for `id`,
@@ -90,6 +111,14 @@ export class TelegramManager {
       const fresh = freshById.get(id);
       if (!fresh || fresh.token !== bot.__channelToken) {
         try { await bot.stopPolling(); } catch {}
+        // In webhook mode stopPolling() is a no-op: tell Telegram to stop
+        // delivering for this token. A rotated-in token sets its own webhook
+        // when its bot starts below; a revoked old token just fails here.
+        if (config.telegram.mode !== 'polling') {
+          try { await bot.deleteWebHook(); } catch (err) {
+            console.error(`[telegram] channel ${id}: deleteWebHook failed: ${err.message}`);
+          }
+        }
         if (bot.__periodicTimer) clearInterval(bot.__periodicTimer);
         this.#bots.delete(id);
       }
@@ -147,17 +176,9 @@ export class TelegramManager {
     });
 
     if (!isPolling && config.telegram.webhookUrl && this.#expressApp) {
-      const path = `/webhook/${channel.webhook_id}`;
-      const url = `${config.telegram.webhookUrl}${path}`;
-      // Route first, setWebHook second: if Telegram's API hiccups (rate
-      // limit during a burst of deploys), the endpoint must still exist —
-      // otherwise the bot 404s every delivery until the next restart, while
-      // setMyCommands further down still succeeds and makes the bot LOOK
-      // healthy in the Telegram client.
-      this.#expressApp.post(path, (req, res) => {
-        bot.processUpdate(req.body);
-        res.sendStatus(200);
-      });
+      // The route itself is mounted once in start(); it finds this bot
+      // through #bots as soon as #startBot registers it below.
+      const url = `${config.telegram.webhookUrl}/webhook/${channel.webhook_id}`;
       try {
         await bot.setWebHook(url);
         console.log(`[telegram] ${channel.name}: webhook at ${url}`);
@@ -171,7 +192,10 @@ export class TelegramManager {
     bot.on('message', async (msg) => {
       // Look up the LIVE channel config on every message. This is what makes
       // model swaps in the admin UI take effect without restarting the bot.
-      const current = this.#channelById.get(channelId) || channel;
+      // A bot that reload() stopped (channel disabled/deleted, token rotated)
+      // must not answer, even if an in-flight update still reaches it.
+      const current = this.#channelById.get(channelId);
+      if (!current || this.#bots.get(channelId) !== bot) return;
       // BIGINT[] comes back from pg as strings — compare as strings so the
       // numeric msg.from.id always matches.
       const allowedUsers = (current.allowed_users || []).map(String);
