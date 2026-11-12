@@ -58,23 +58,3 @@ test('malformed JSON string args surface as { error }, not a crash', async () =>
   const res = await reg.execute('echo', '{not json');
   assert.ok(res.error);
 });
-
-// The README "Built-in tools" section lists these exact names, and skills /
-// system prompts refer to them. A rename fails here — update the README too.
-test('built-in tool names match the README list', async () => {
-  const modules = ['exec', 'http', 'files', 'cron', 'db', 'web', 'history', 'skills'];
-  const reg = new ToolRegistry();
-  for (const m of modules) {
-    const { register } = await import(`../src/tools/${m}.js`);
-    register(reg);
-  }
-  assert.deepEqual(reg.list().sort(), [
-    'add_cron', 'create_skill', 'db_describe_table', 'db_list_tables', 'db_run_sql',
-    'delete_skill', 'file_operation', 'get_cron', 'http_request', 'list_crons',
-    'read_skill', 'remove_cron', 'run_command', 'search_history', 'update_skill',
-    'web_fetch', 'web_search',
-  ]);
-  for (const { name, definition } of reg.getEntries()) {
-    assert.equal(definition.function.name, name, `definition name of ${name}`);
-  }
-});

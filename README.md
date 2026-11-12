@@ -193,7 +193,7 @@ Configure models per-agent across three providers, all routed through one unifie
 Reusable knowledge / instructions stored in the DB, assignable per-agent (or marked public). The agent sees them in its system prompt as `[id] name: description` entries and uses the `read_skill` tool to pull the full content on demand — keeps system prompts compact while making large playbooks available.
 
 ### Built-in tools
-These are the exact names the model sees, so use them when a skill or system prompt refers to a tool. `agent/test/toolRegistry.test.js` pins the list; update this section when it changes.
+These are the exact names the model sees, so use them when a skill or system prompt refers to a tool. Update this section when a tool is added or renamed.
 
 - **`run_command`** (`tools/exec.js`) — run shell commands inside the container's workspace
 - **`file_operation`** (`tools/files.js`) — read, write, append, list and delete files in the workspace
