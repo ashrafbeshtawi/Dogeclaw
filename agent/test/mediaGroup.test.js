@@ -75,6 +75,37 @@ test('flushPrefix leaves other chats pending and does not flush twice', async ()
   assert.deepEqual(flushes, [['a'], ['b']]);
 });
 
+test('flushPrefix waits for a part that is still downloading', async () => {
+  const order = [];
+  const buf = createMediaGroupBuffer({ delayMs: 1000, onFlush: parts => { order.push(parts); } });
+  buf.add('42:album', 'img1');
+  buf.add('42:album', sleep(20).then(() => 'img2'));
+  await buf.flushPrefix('42:');
+  order.push('what is in these?');
+  assert.deepEqual(order, [['img1', 'img2'], 'what is in these?']);
+});
+
+test('the timer flush waits for pending parts and keeps arrival order', async () => {
+  const flushes = [];
+  const buf = createMediaGroupBuffer({ delayMs: 10, onFlush: parts => flushes.push(parts) });
+  buf.add('k', sleep(40).then(() => 'slow'));
+  buf.add('k', 'fast');
+  await sleep(20);
+  assert.equal(flushes.length, 0);
+  await sleep(40);
+  assert.deepEqual(flushes, [['slow', 'fast']]);
+});
+
+test('parts that resolve to null are left out, an empty group is not flushed', async () => {
+  const flushes = [];
+  const buf = createMediaGroupBuffer({ delayMs: 5, onFlush: parts => flushes.push(parts) });
+  buf.add('a', 'x');
+  buf.add('a', Promise.resolve(null));
+  buf.add('b', Promise.resolve(null));
+  await sleep(20);
+  assert.deepEqual(flushes, [['x']]);
+});
+
 test('flushPrefix without a pending group does nothing', async () => {
   const flushes = [];
   const buf = createMediaGroupBuffer({ delayMs: 20, onFlush: parts => flushes.push(parts) });

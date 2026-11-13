@@ -221,74 +221,28 @@ export class TelegramManager {
         return this.#handleCronCommand(bot, msg, current);
       }
 
-      // Media routing: download only what the model can actually consume.
-      // Anything the model doesn't accept becomes a [Attached: <type>] hint
-      // so the model can at least acknowledge it to the user.
-      const accepts = Array.isArray(current.accepts) ? current.accepts : ['text'];
-      let textContent = msg.text || msg.caption || '';
-      const media = { images: null, audio: null, audioMime: null, video: null, videoMime: null };
-      const mediaHints = [];
-
-      try {
-        // Photos / image-as-document. `msg.photo` is one image at multiple
-        // resolutions (thumb / medium / large) — the last entry is highest-
-        // res. Media-group (album) sends arrive as separate `message` events,
-        // each with its own `msg.photo`; they're merged further down.
-        const imageFileId = msg.photo
-          ? msg.photo[msg.photo.length - 1].file_id
-          : (msg.document?.mime_type?.startsWith('image/') ? msg.document.file_id : null);
-        if (imageFileId) {
-          if (accepts.includes('image')) {
-            media.images = [await this.#downloadFileBase64(bot, imageFileId)];
-          } else {
-            mediaHints.push('image');
-          }
-        }
-
-        // Voice notes + audio files. The `typing` chat-action is sent once
-        // for every inbound message by #handleMessage — no need to repeat
-        // it here.
-        const audioPart = msg.voice || msg.audio;
-        if (audioPart) {
-          if (accepts.includes('audio')) {
-            console.log(`[telegram] ${current.name}: downloading audio for audio-capable model...`);
-            media.audio = await this.#downloadFileBase64(bot, audioPart.file_id);
-            media.audioMime = audioPart.mime_type || 'audio/ogg';
-          } else {
-            mediaHints.push('audio');
-          }
-        }
-
-        // Videos + video notes (round Telegram bubbles)
-        const videoPart = msg.video || msg.video_note;
-        if (videoPart) {
-          if (accepts.includes('video')) {
-            console.log(`[telegram] ${current.name}: downloading video for video-capable model...`);
-            media.video = await this.#downloadFileBase64(bot, videoPart.file_id);
-            media.videoMime = videoPart.mime_type || 'video/mp4';
-          } else {
-            mediaHints.push('video');
-          }
-        }
-      } catch (err) {
-        console.error(`[telegram] ${current.name}: failed to download media: ${err.message}`);
-        await bot.sendMessage(msg.chat.id, `Failed to process attachment: ${err.message}`).catch(() => {});
-        return;
-      }
+      const textContent = msg.text || msg.caption || '';
 
       // Album items arrive one event each; buffer them and dispatch the
-      // whole group as a single turn once the album stops arriving.
+      // whole group as a single turn once the album stops arriving. The part
+      // is registered before its download, so a following message waits for
+      // it instead of flushing the album without it.
       if (msg.media_group_id) {
-        bot.__mediaGroups.add(`${msg.chat.id}:${msg.media_group_id}`, {
-          msg, text: textContent, media, mediaHints, messageId: msg.message_id,
-        });
+        bot.__mediaGroups.add(
+          `${msg.chat.id}:${msg.media_group_id}`,
+          this.#readMedia(bot, msg, current).then(read => read && {
+            msg, text: textContent, ...read, messageId: msg.message_id,
+          }),
+        );
         return;
       }
 
+      const read = await this.#readMedia(bot, msg, current);
+      if (!read) return;
       // An album of this chat that is still in its quiet period goes first,
       // so a follow-up like "what is in these?" reaches the agent after it.
       await bot.__mediaGroups.flushPrefix(`${msg.chat.id}:`);
-      await this.#dispatch(bot, msg, current, textContent, media, mediaHints, msg.message_id);
+      await this.#dispatch(bot, msg, current, textContent, read.media, read.mediaHints, msg.message_id);
     });
 
     this.#bots.set(channelId, bot);
@@ -302,6 +256,65 @@ export class TelegramManager {
     }).catch(err => {
       console.error(`[telegram] ${channel.name}: setMyCommands failed: ${err.message}`);
     });
+  }
+
+  // Media routing: download only what the model can actually consume.
+  // Anything the model doesn't accept becomes a [Attached: <type>] hint
+  // so the model can at least acknowledge it to the user.
+  // Returns { media, mediaHints }, or null when a download failed (the user
+  // has then been told).
+  async #readMedia(bot, msg, current) {
+    const accepts = Array.isArray(current.accepts) ? current.accepts : ['text'];
+    const media = { images: null, audio: null, audioMime: null, video: null, videoMime: null };
+    const mediaHints = [];
+
+    try {
+      // Photos / image-as-document. `msg.photo` is one image at multiple
+      // resolutions (thumb / medium / large) — the last entry is highest-
+      // res. Media-group (album) sends arrive as separate `message` events,
+      // each with its own `msg.photo`; they're merged by the album buffer.
+      const imageFileId = msg.photo
+        ? msg.photo[msg.photo.length - 1].file_id
+        : (msg.document?.mime_type?.startsWith('image/') ? msg.document.file_id : null);
+      if (imageFileId) {
+        if (accepts.includes('image')) {
+          media.images = [await this.#downloadFileBase64(bot, imageFileId)];
+        } else {
+          mediaHints.push('image');
+        }
+      }
+
+      // Voice notes + audio files. The `typing` chat-action is sent once
+      // for every inbound message by #handleMessage — no need to repeat
+      // it here.
+      const audioPart = msg.voice || msg.audio;
+      if (audioPart) {
+        if (accepts.includes('audio')) {
+          console.log(`[telegram] ${current.name}: downloading audio for audio-capable model...`);
+          media.audio = await this.#downloadFileBase64(bot, audioPart.file_id);
+          media.audioMime = audioPart.mime_type || 'audio/ogg';
+        } else {
+          mediaHints.push('audio');
+        }
+      }
+
+      // Videos + video notes (round Telegram bubbles)
+      const videoPart = msg.video || msg.video_note;
+      if (videoPart) {
+        if (accepts.includes('video')) {
+          console.log(`[telegram] ${current.name}: downloading video for video-capable model...`);
+          media.video = await this.#downloadFileBase64(bot, videoPart.file_id);
+          media.videoMime = videoPart.mime_type || 'video/mp4';
+        } else {
+          mediaHints.push('video');
+        }
+      }
+    } catch (err) {
+      console.error(`[telegram] ${current.name}: failed to download media: ${err.message}`);
+      await bot.sendMessage(msg.chat.id, `Failed to process attachment: ${err.message}`).catch(() => {});
+      return null;
+    }
+    return { media, mediaHints };
   }
 
   // Routes one user turn (a single message or a merged album) to the

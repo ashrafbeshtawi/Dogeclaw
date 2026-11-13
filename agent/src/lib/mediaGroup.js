@@ -8,11 +8,15 @@ export const MEDIA_GROUP_DELAY_MS = 1500;
 // Debounced per-key buffer: each add() resets the key's timer; when no new
 // part arrives for `delayMs`, onFlush(parts) is called once with every part
 // in arrival order.
+// A part may be a promise (e.g. a part whose media is still downloading), so
+// it can be registered as soon as its event arrives. A flush waits for all
+// of them; parts that resolve to null (failed download) are left out.
 export function createMediaGroupBuffer({ delayMs = MEDIA_GROUP_DELAY_MS, onFlush }) {
   const groups = new Map(); // key -> { parts, timer }
 
-  const runFlush = parts => Promise.resolve()
-    .then(() => onFlush(parts))
+  const runFlush = pending => Promise.all(pending)
+    .then(parts => parts.filter(part => part != null))
+    .then(parts => parts.length > 0 && onFlush(parts))
     .catch(err => console.error(`[media-group] flush failed: ${err.message}`));
 
   return {
@@ -30,9 +34,9 @@ export function createMediaGroupBuffer({ delayMs = MEDIA_GROUP_DELAY_MS, onFlush
       }, delayMs);
     },
     // Flushes every pending group whose key starts with `prefix` right away,
-    // without waiting for the quiet period, and resolves once their onFlush
-    // calls are done. Used so a plain message sent after an album does not
-    // overtake the album.
+    // without waiting for the quiet period, and resolves once their parts are
+    // ready and their onFlush calls are done. Used so a plain message sent
+    // after an album does not overtake the album.
     async flushPrefix(prefix) {
       const due = [];
       for (const [key, group] of groups) {
