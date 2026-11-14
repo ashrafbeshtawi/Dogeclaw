@@ -11,6 +11,7 @@ import { listJobs, getJob, deleteJob } from '../db/crons.js';
 import { ownsJob } from '../lib/cronOwnership.js';
 import { enqueue as enqueueMessage, claimBatch } from '../db/queue.js';
 import { withSessionLock } from '../lib/sessionLock.js';
+import { runWithRetry } from '../lib/retry.js';
 import { toModelConfig } from '../db/agentRuntime.js';
 import config from '../config.js';
 
@@ -461,22 +462,82 @@ export class TelegramManager {
     }
 
     for (const [chatId, messages] of byChat) {
-      const combined = messages.map(m => m.text).join('\n---\n');
+      // One chat failing (DB hiccup, provider down) must not skip the others.
       try {
-        const result = await this.#agent.run(combined, [], {
+        await this.#answerQueuedChat(bot, channel, chatId, messages);
+      } catch (err) {
+        console.error(`[telegram] ${channel.name}: queued batch for chat ${chatId} failed: ${err.message}`);
+        await bot.sendMessage(chatId, `Error: ${err.message}`).catch(() => {});
+      }
+    }
+  }
+
+  // Periodic mode answers a whole batch in one turn, but otherwise behaves
+  // like #handleMessage: same session, history, persisted rows and images.
+  async #answerQueuedChat(bot, channel, chatId, messages) {
+    messages.sort((a, b) => Number(a.id) - Number(b.id));
+    bot.sendChatAction(chatId, 'typing').catch(() => {});
+
+    const sessionId = await this.#resolveSessionId(channel, chatId);
+    await ensureSession(sessionId, this.#sessionMeta(channel, chatId));
+    const modelConfig = toModelConfig(channel);
+
+    // Images were stored only when the model accepted them at enqueue time;
+    // if the model has since been swapped for a text-only one, fall back to
+    // the same [Attached: image] hint immediate mode uses.
+    const accepts = Array.isArray(channel.accepts) ? channel.accepts : ['text'];
+    const images = messages.flatMap(m => (Array.isArray(m.images) ? m.images : []));
+    const sendImages = images.length > 0 && accepts.includes('image');
+    const mediaHints = images.length > 0 && !sendImages ? ['image'] : [];
+    const combined = messages.map(m => m.text).filter(Boolean).join('\n---\n');
+
+    await withSessionLock(sessionId, async () => {
+      // History first, then persist the queued rows: agent.run appends the
+      // user turn itself, and the rows must be saved before the model call so
+      // a failure below doesn't lose what the user sent (claimBatch already
+      // took them off the queue).
+      const { messages: history } = await loadSession(sessionId);
+
+      for (const m of messages) {
+        await appendMessage(sessionId, {
+          role: 'user',
+          content: m.text || '',
+          hasImage: Array.isArray(m.images) && m.images.length > 0,
+          hasAudio: false,
+          hasVideo: false,
+          meta: {},
+        });
+      }
+
+      try {
+        const result = await runWithRetry(() => this.#agent.run(combined, history, {
           agentId: channel.agent_id,
           agentName: channel.agent_name,
           channelId: channel.id,
           chatId: String(chatId),
+          sessionId,
           systemPrompt: channel.system_prompt,
-          modelConfig: toModelConfig(channel),
+          modelConfig,
           systemNote: `Processing ${messages.length} queued message(s)`,
+          images: sendImages ? images : undefined,
+          mediaHints: mediaHints.length ? mediaHints : undefined,
+        }), {
+          onRetry: (err, attempt) => console.warn(`[telegram] ${channel.name}: queued batch attempt ${attempt} failed, retrying: ${err.message}`),
         });
+
+        await appendMessage(sessionId, {
+          role: 'assistant',
+          content: result.content,
+          thinking: result.thinking || null,
+          toolCalls: result.toolCalls?.length ? result.toolCalls : null,
+        });
+
         await sendLong(bot, chatId, result.content);
       } catch (err) {
+        console.error(`[telegram] Error handling queued messages: ${err.message}`);
         await bot.sendMessage(chatId, `Error: ${err.message}`).catch(() => {});
       }
-    }
+    });
   }
 
   async sendMessageVia(channelId, chatId, text) {
