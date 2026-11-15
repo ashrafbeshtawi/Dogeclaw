@@ -87,9 +87,9 @@
             input.disabled = false;
             input.placeholder = 'Message DogeClaw...';
 
-            sel.innerHTML = agents.filter(function(a) { return a.model_id; }).map(function(a) {
-                return '<option value="' + a.id + '"' + (a.id === currentAgentId ? ' selected' : '') + '>' + a.name + '</option>';
-            }).join('');
+            sel.replaceChildren.apply(sel, agents.filter(function(a) { return a.model_id; }).map(function(a) {
+                return new Option(a.name, a.id, false, a.id === currentAgentId);
+            }));
             if (!currentAgentId && agents.length) currentAgentId = agents.find(function(a) { return a.model_id; })?.id;
         }
 
@@ -108,12 +108,29 @@
             if (res.status === 401) return window.location.href = '/login';
             var data = await res.json();
             var el = document.getElementById('sessions');
-            el.innerHTML = data.sessions.map(function(s) {
-                var src = s.source === 'telegram' ? '<span class="src">TG</span>' : '';
-                return '<div class="session-item ' + (s.id === sessionId ? 'active' : '') + '" onclick="switchSession(\'' + s.id + '\')">'
-                    + src + '<span class="session-label">' + (s.preview || s.id.slice(0,8) + '...') + '</span>'
-                    + '<span class="del" onclick="event.stopPropagation();deleteSession(\'' + s.id + '\')">&times;</span></div>';
-            }).join('');
+            // Built with DOM nodes, never innerHTML: previews are the last message
+            // of a chat, which strangers (Telegram) and fetched web pages control.
+            el.replaceChildren.apply(el, data.sessions.map(function(s) {
+                var item = document.createElement('div');
+                item.className = 'session-item' + (s.id === sessionId ? ' active' : '');
+                item.addEventListener('click', function() { switchSession(s.id); });
+                if (s.source === 'telegram') {
+                    var src = document.createElement('span');
+                    src.className = 'src';
+                    src.textContent = 'TG';
+                    item.appendChild(src);
+                }
+                var label = document.createElement('span');
+                label.className = 'session-label';
+                label.textContent = s.preview || String(s.id).slice(0, 8) + '...';
+                item.appendChild(label);
+                var del = document.createElement('span');
+                del.className = 'del';
+                del.textContent = '×';
+                del.addEventListener('click', function(e) { e.stopPropagation(); deleteSession(s.id); });
+                item.appendChild(del);
+                return item;
+            }));
         }
 
         function newSession() {
@@ -223,7 +240,7 @@
             el.scrollTop = el.scrollHeight;
         }
 
-        function escapeHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+        function escapeHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 
         function onFileSelect(e) {
             var file = e.target.files[0];
