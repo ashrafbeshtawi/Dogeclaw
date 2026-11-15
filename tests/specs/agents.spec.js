@@ -32,6 +32,28 @@ test.describe('agents tab', () => {
     await expect(page.locator('#agentsTable')).not.toContainText(name);
   });
 
+  test('admin flag round-trips through the API and shows a badge', async ({ page }) => {
+    const name = await uniqueName('agent');
+    const res = await page.request.post('/api/agents', {
+      data: { name, system_prompt: '', is_admin: true },
+    });
+    expect(res.ok()).toBeTruthy();
+    const created = await res.json();
+    expect(created.is_admin).toBe(true);
+
+    await openAdminTab(page, 'agents');
+    const row = page.locator('#agentsTable tr', { hasText: name });
+    await expect(row).toContainText('admin');
+
+    // Omitting is_admin on PUT leaves it unchanged; false clears it.
+    const kept = await page.request.put(`/api/agents/${created.id}`, { data: { system_prompt: 'x' } });
+    expect((await kept.json()).is_admin).toBe(true);
+    const cleared = await page.request.put(`/api/agents/${created.id}`, { data: { is_admin: false } });
+    expect((await cleared.json()).is_admin).toBe(false);
+
+    await page.request.delete(`/api/agents/${created.id}`);
+  });
+
   test('agent appears in Channel-modal dropdown', async ({ page }) => {
     const name = await uniqueName('agent');
 

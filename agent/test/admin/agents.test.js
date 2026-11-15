@@ -53,6 +53,30 @@ test('openAgentModal fills the form from an existing agent', () => {
   } finally { dom.restore(); state.agents = []; }
 });
 
+test('renderAgents marks admin agents with a badge', () => {
+  const dom = installDom();
+  state.agents = [AGENT, { ...AGENT, id: 2, name: 'Overseer', is_admin: true }];
+  state.skills = [];
+  try {
+    renderAgents();
+    const rows = dom.el('agentsTable').innerHTML.split('</tr>');
+    assert.equal(/>admin</.test(rows[0]), false);
+    assert.match(rows[1], />admin</);
+  } finally { dom.restore(); state.agents = []; }
+});
+
+test('openAgentModal reflects the admin flag, and a new agent starts non-admin', () => {
+  const dom = installDom();
+  state.agents = [{ ...AGENT, is_admin: true }];
+  state.skills = [];
+  try {
+    openAgentModal(1);
+    assert.equal(dom.el('agentIsAdmin').checked, true);
+    openAgentModal();
+    assert.equal(dom.el('agentIsAdmin').checked, false);
+  } finally { dom.restore(); state.agents = []; }
+});
+
 test('the skills picker explains itself when no skills exist', () => {
   const dom = installDom();
   state.agents = [AGENT];

@@ -50,7 +50,7 @@ bin/restart    docker compose restart dogeclaw
 bin/install    reinstall deps inside the running container
 bin/logs       tail logs
 bin/shell      bash inside the container
-bin/seed       load dev fixtures (model + skills + agents + telegram channel)
+bin/seed       load dev fixtures (model + skills + agents incl. an admin agent + telegram channel)
 ```
 
 #### Dev fixtures
@@ -176,6 +176,16 @@ Define any number of agents with their own:
 - skill assignments
 
 Each agent is a separate persona with its own behavior and toolset.
+
+### Admin ("god") agent
+Tick **Admin agent** in an agent's settings (or seed the `overseer` fixture) and that agent gets a management tool set no other agent sees:
+- `list_agents`, `list_models`, `get_agent` — inspect every agent: prompt, model, skills (with content), MCP servers, channels, cron jobs
+- `create_agent`, `update_agent` — create and edit non-admin agents
+- `get_agent_conversations` — read an agent's recent sessions and messages
+- `analyze_agent_performance` — message volume, unanswered messages, fallback replies, turn latency, tool calls and per-tool error rates, cron success over a time window (token usage and cost are not recorded)
+- `send_message_to_agent`, `relay_message` — talk to an agent, or pass a message from one agent to another; the recipient runs a normal turn in a dedicated `agent-<from>-to-<to>` session (visible in the chat UI) and its reply is returned
+
+Guard rails: only the operator can grant the admin flag; admin agents cannot create or edit admin agents (themselves included) and cannot delete agents; messaging is one level deep (no messaging yourself, other admins, or from a run that was itself triggered by an agent message); API keys, bot tokens and similar secrets are redacted from everything the tools return.
 
 ### Multi-model providers
 Configure models per-agent across three providers, all routed through one unified streaming abstraction:
