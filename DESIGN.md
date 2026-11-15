@@ -20,7 +20,7 @@ can evolve the look, but the playful-dark-red identity is the brand.
 
 | Page | File | Purpose |
 |---|---|---|
-| Login | `agent/src/web/public/login.html` | Centered card, logo, two fields, meme footer |
+| Login / landing | `agent/src/web/public/login.html` | Landing page: animated backdrop, hero pitch + feature cards, and the login card (logo, two fields, meme footer) beside it; stacked card-first on mobile. Landing styles are plain CSS (`lp-*`) in the page's own `<style>`, so no Tailwind rebuild is needed |
 | Chat | `agent/src/web/public/index.html` | Sidebar (logo, agent select, session list, admin/logout) + message pane + composer (attach, mic, textarea, send). Streams responses via SSE with a spinner/status row, collapsible "thinking" blocks, image/audio chips |
 | Admin | `agent/src/web/public/admin.html` | Top navbar, horizontal tab bar (Models, Agents, Skills, Channels, MCP, Search, Cron Jobs, Events, Settings), each tab a table + "＋ New" button opening a modal. Crons tab adds All/Active/Inactive sub-tabs with counts and a text filter |
 
