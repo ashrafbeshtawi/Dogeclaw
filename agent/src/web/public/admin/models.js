@@ -12,6 +12,9 @@ export function renderModels() {
 
 
 // Model CRUD
+const PRESET_URLS = ['https://openrouter.ai', 'https://router.requesty.ai/v1',
+    'https://generativelanguage.googleapis.com', 'http://ollama:11434'];
+
 export function onProviderChange() {
     var p = document.getElementById('modelProvider').value;
     var urlInput = document.getElementById('modelBaseUrl');
@@ -22,6 +25,18 @@ export function onProviderChange() {
         urlInput.placeholder = 'https://openrouter.ai';
         keyRow.style.display = 'block';
         modelInput.placeholder = 'anthropic/claude-sonnet-4';
+    } else if (p === 'requesty') {
+        urlInput.value = 'https://router.requesty.ai/v1';
+        urlInput.placeholder = 'https://router.requesty.ai/v1';
+        keyRow.style.display = 'block';
+        modelInput.placeholder = 'openai/gpt-4o-mini';
+    } else if (p === 'openai-compatible') {
+        // No canonical URL: keep whatever the operator (or the saved row)
+        // put there unless it is another provider's preset.
+        if (PRESET_URLS.includes(urlInput.value)) urlInput.value = '';
+        urlInput.placeholder = 'https://api.example.com/v1';
+        keyRow.style.display = 'block';
+        modelInput.placeholder = 'vendor/model-name';
     } else if (p === 'google') {
         urlInput.value = 'https://generativelanguage.googleapis.com';
         urlInput.placeholder = 'https://generativelanguage.googleapis.com';

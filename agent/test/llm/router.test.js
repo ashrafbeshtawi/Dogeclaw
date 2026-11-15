@@ -13,6 +13,8 @@ const DISPATCH = [
   ['ollama', { model: 'm', baseUrl: 'http://ollama.test' }, /^http:\/\/ollama\.test\/api\/chat$/],
   ['openrouter', { model: 'm', apiKey: 'K', baseUrl: 'https://or.test' }, /^https:\/\/or\.test\/api\/v1\/chat\/completions$/],
   ['google', { model: 'g', apiKey: 'K', baseUrl: 'https://g.test' }, /^https:\/\/g\.test\/v1beta\/models\/g:generateContent/],
+  ['requesty', { model: 'm', apiKey: 'K', baseUrl: 'https://rq.test/v1' }, /^https:\/\/rq\.test\/v1\/chat\/completions$/],
+  ['openai-compatible', { model: 'm', apiKey: 'K', baseUrl: 'https://oc.test/v1' }, /^https:\/\/oc\.test\/v1\/chat\/completions$/],
 ];
 
 // Enough of a reply for every adapter to parse without throwing.
@@ -51,7 +53,7 @@ test('an unknown provider fails loudly instead of falling back to Ollama', async
   // A typo in a model row used to look like a mysteriously wrong model.
   await assert.rejects(
     () => chat([], [], { provider: 'openai', model: 'm' }),
-    /Unknown model provider "openai".*google, ollama, openrouter/s,
+    /Unknown model provider "openai".*google, ollama, openai-compatible, openrouter, requesty/s,
   );
 });
 
