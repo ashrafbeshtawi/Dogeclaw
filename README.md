@@ -154,6 +154,7 @@ The `dogeclaw` Postgres role is created with a default, well-known password (`do
 | `DOGECLAW_TELEGRAM_MODE` | no | `polling` | `polling` or `webhook` |
 | `DOGECLAW_WEBHOOK_URL` | no | — | Public base URL when using `webhook` mode |
 | `SENTRY_DSN` | no | — | DSN of a Sentry-compatible project (e.g. GlitchTip); blank disables error reporting |
+| `DOGECLAW_CAMOUFOX_WS` | no | — | Playwright websocket of the Camoufox service (e.g. `ws://camoufox:1234/camoufox`); blank disables the `browser_*` tools |
 
 Model API keys (OpenRouter, Google Gemini, etc.) are configured per-model **at runtime via the admin UI**, not via env vars.
 
@@ -198,10 +199,20 @@ Reusable knowledge / instructions stored in the DB, assignable per-agent (or mar
 - **`schedule_cron`** — let the agent set up its own scheduled tasks
 - **`database`** — structured Postgres access via the restricted role: list/describe the agent's tables, select/insert/update/delete rows, raw SQL as escape hatch
 - **`web_search` / `web_fetch`** — search the web and fetch/parse pages with cheerio
+- **`browser_open` / `browser_click` / `browser_type` / `browser_read` / `browser_screenshot` / `browser_close`** — a real stealth browser ([Camoufox](https://camoufox.com)) for JS-rendered pages, logins and sites that block plain fetches (see below)
 - **`http_request`** — raw HTTP calls for JSON/REST APIs
 - **`search_history`** — search the current conversation's full stored history
 - **MCP bridge** — connect any Model Context Protocol stdio server and expose its tools to the agent
 - **`read_skill`** — load a skill's full content on demand
+
+### Stealth browser (optional)
+The `browser_*` tools drive [Camoufox](https://camoufox.com), a Firefox build hardened against bot detection, running as its own service (`camoufox/`) and reached over Playwright's websocket protocol. Enable it with:
+
+```bash
+DOGECLAW_CAMOUFOX_WS=ws://camoufox:1234/camoufox docker compose --profile browser up --build
+```
+
+Each conversation gets its own browser context (cookies and logins persist across tool calls) that closes after 10 minutes idle or on `browser_close`; at most 5 are open at once. Every request the page makes — redirects, scripts, XHR — passes the same SSRF guard as `web_fetch`, so the browser cannot reach internal services. Screenshots land in the workspace under `files/screenshots/`. The Playwright version inside the Camoufox image must match `playwright-core` in `agent/package.json`.
 
 ### Audio, image & video
 Media is forwarded straight to the model when its `accepts` list covers the type — Ollama via `images`, Gemini via `inline_data`. For models that don't accept a given media type, the LLM message gets an `[Attached: <type>]` placeholder so the model can acknowledge it and ask the user for text. No on-box transcription stack.

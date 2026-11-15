@@ -20,6 +20,11 @@ const config = {
     mode: env.DOGECLAW_TELEGRAM_MODE || 'polling',
     webhookUrl: env.DOGECLAW_WEBHOOK_URL || '',
   },
+  // Playwright websocket of the Camoufox service (compose profile "browser").
+  // Blank = no browser_* tools.
+  browser: {
+    wsEndpoint: env.DOGECLAW_CAMOUFOX_WS || '',
+  },
   workspace: env.DOGECLAW_WORKSPACE || '/root/agent-workspace',
 };
 
