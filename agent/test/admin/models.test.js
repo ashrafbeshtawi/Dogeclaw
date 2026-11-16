@@ -84,6 +84,15 @@ test('editing an OpenAI-compatible model keeps its saved base URL', () => {
   } finally { dom.restore(); state.models = []; }
 });
 
+test('editing an OpenAI-compatible model keeps a saved preset base URL', () => {
+  const dom = installDom();
+  state.models = [{ ...MODEL, provider: 'openai-compatible', base_url: 'https://router.requesty.ai/v1' }];
+  try {
+    openModelModal(1);
+    assert.equal(dom.el('modelBaseUrl').value, 'https://router.requesty.ai/v1');
+  } finally { dom.restore(); state.models = []; }
+});
+
 test('openModelModal fills the form from an existing model', () => {
   const dom = installDom();
   state.models = [MODEL];

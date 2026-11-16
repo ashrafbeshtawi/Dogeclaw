@@ -15,7 +15,8 @@ export function renderModels() {
 const PRESET_URLS = ['https://openrouter.ai', 'https://router.requesty.ai/v1',
     'https://generativelanguage.googleapis.com', 'http://ollama:11434'];
 
-export function onProviderChange() {
+// keepUrl: the modal just opened with a saved row, so its URL stays as saved.
+export function onProviderChange(keepUrl) {
     var p = document.getElementById('modelProvider').value;
     var urlInput = document.getElementById('modelBaseUrl');
     var keyRow = document.getElementById('apiKeyRow');
@@ -32,8 +33,8 @@ export function onProviderChange() {
         modelInput.placeholder = 'openai/gpt-4o-mini';
     } else if (p === 'openai-compatible') {
         // No canonical URL: keep whatever the operator (or the saved row)
-        // put there unless it is another provider's preset.
-        if (PRESET_URLS.includes(urlInput.value)) urlInput.value = '';
+        // put there unless the provider was just switched away from a preset.
+        if (!keepUrl && PRESET_URLS.includes(urlInput.value)) urlInput.value = '';
         urlInput.placeholder = 'https://api.example.com/v1';
         keyRow.style.display = 'block';
         modelInput.placeholder = 'vendor/model-name';
@@ -65,7 +66,7 @@ export function openModelModal(m) {
     document.getElementById('acceptAudio').checked = acc.includes('audio');
     document.getElementById('acceptVideo').checked = acc.includes('video');
     document.getElementById('testResult').style.display = 'none';
-    onProviderChange();
+    onProviderChange(true);
     document.getElementById('modelModal').classList.add('open');
 }
 export function editModel(id){openModelModal(id);}
