@@ -38,6 +38,13 @@ and secret (admin UI), DogeClaw runs the standard authorization-code flow with
 2. `GET /oauth/google/start` → consent screen with the chosen scopes, `prompt=consent`,
    `access_type=offline`. Callback stores the refresh token encrypted (DOGECLAW_WEB_SECRET-derived key),
    in a new `oauth_connections` table, revoked from the restricted DB role like `models.api_key` (V18).
+   - Both `/oauth/google/start` and the callback need an authenticated admin session.
+   - CSRF: `start` creates a random `state` value, binds it to the admin session and sends it
+     to Google; the callback rejects the request unless `state` matches, then drops it. Without
+     this, another site can make the admin's browser finish a flow with the attacker's Google
+     account, and the agent then reads and sends mail through that account.
+   - PKCE: `start` also creates a `code_verifier` (kept in the session) and sends its S256
+     `code_challenge`; the callback sends the verifier with the code exchange.
 3. Tools: `gmail_search`, `gmail_read`, `gmail_send` (draft-first, with a confirm flag),
    `calendar_list_events`, `calendar_create_event`. Plain `fetch` against the REST APIs:
    no `googleapis` dependency needed.
