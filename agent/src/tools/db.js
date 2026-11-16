@@ -1,4 +1,4 @@
-import { agentQuery } from '../db/pool.js';
+import { agentQuery, AGENT_STATEMENT_TIMEOUT_MS } from '../db/pool.js';
 import { trimTextFields } from '../lib/trimTextFields.js';
 
 // Three tools: two for schema discovery, one for everything else. The model
@@ -72,7 +72,7 @@ export function register(registry) {
     type: 'function',
     function: {
       name: 'db_run_sql',
-      description: 'Run SQL against your PostgreSQL memory database — SELECT, INSERT, UPDATE, DELETE, CREATE TABLE, JOINs, aggregates. Use params ($1, $2) for values. Examples: {"query": "SELECT * FROM notes WHERE topic = $1 ORDER BY created_at DESC LIMIT 20", "params": ["health"]} or {"query": "INSERT INTO notes (topic, body) VALUES ($1, $2)", "params": ["health", "..."]}. Long text values in results are shown trimmed.',
+      description: 'Run SQL against your PostgreSQL memory database — SELECT, INSERT, UPDATE, DELETE, CREATE TABLE, JOINs, aggregates. Use params ($1, $2) for values. Examples: {"query": "SELECT * FROM notes WHERE topic = $1 ORDER BY created_at DESC LIMIT 20", "params": ["health"]} or {"query": "INSERT INTO notes (topic, body) VALUES ($1, $2)", "params": ["health", "..."]}. Long text values in results are shown trimmed. At most 100 rows are returned (truncated: true when there are more); queries are cancelled after 30 seconds.',
       parameters: {
         type: 'object',
         properties: {
@@ -83,12 +83,48 @@ export function register(registry) {
       },
     },
   }, async ({ query: sql, params }) => {
-    const res = await agentQuery(sql, params || []);
+    let res;
+    try {
+      res = await runCapped(sql, params || []);
+    } catch (err) {
+      if (err.code === QUERY_CANCELED) {
+        return { error: `Query cancelled after ${AGENT_STATEMENT_TIMEOUT_MS / 1000}s. Add a LIMIT, narrow the WHERE or add an index.` };
+      }
+      throw err;
+    }
+    const truncated = res.rows?.length > MAX_ROWS;
     return {
-      rowCount: res.rowCount,
-      rows: trimTextFields(res.rows?.slice(0, 100)),
+      // Reads are capped at the source, so a truncated count is not the total.
+      rowCount: truncated ? MAX_ROWS : res.rowCount,
+      rows: trimTextFields(res.rows?.slice(0, MAX_ROWS)),
       command: res.command,
-      ...(res.rows?.length > 100 && { truncated: true }),
+      ...(truncated && { truncated: true }),
     };
   });
+}
+
+export const MAX_ROWS = 100;
+const QUERY_CANCELED = '57014';
+// Errors Postgres raises while parsing the wrapped query (e.g. a data-modifying
+// CTE inside a subquery). Nothing has run yet, so the plain query is safe to try.
+const WRAP_PARSE_ERRORS = new Set(['42601', '0A000']);
+
+/**
+ * Run agent SQL, fetching at most MAX_ROWS + 1 rows for reads. pg loads the
+ * whole result into memory, so the cap has to be in the query itself: a
+ * SELECT/WITH is wrapped as a subquery with a LIMIT. Anything the wrap can't
+ * handle runs as written.
+ */
+export async function runCapped(sql, params) {
+  const body = sql.trim().replace(/;\s*$/, '');
+  if (!/^(select|with)\b/i.test(body) || body.includes(';')) {
+    return agentQuery(sql, params);
+  }
+  try {
+    // The newline keeps a trailing `-- comment` from swallowing the `)`.
+    return await agentQuery(`SELECT * FROM (${body}\n) AS _q LIMIT ${MAX_ROWS + 1}`, params);
+  } catch (err) {
+    if (WRAP_PARSE_ERRORS.has(err.code)) return agentQuery(sql, params);
+    throw err;
+  }
 }

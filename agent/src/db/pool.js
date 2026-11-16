@@ -8,7 +8,14 @@ import config from '../config.js';
 // (the db_ tools) runs as the agent role, which has no access to `system`.
 export const SYSTEM_SCHEMA = 'system';
 const ADMIN_SEARCH_PATH = `-c search_path=${SYSTEM_SCHEMA},public`;
-const AGENT_SEARCH_PATH = '-c search_path=public';
+// Agent SQL is model-written: a runaway query or a forgotten open transaction
+// must not hold the session lock forever. Admin queries keep no limit.
+export const AGENT_STATEMENT_TIMEOUT_MS = 30_000;
+const AGENT_OPTIONS = [
+  '-c search_path=public',
+  `-c statement_timeout=${AGENT_STATEMENT_TIMEOUT_MS}`,
+  '-c idle_in_transaction_session_timeout=60000',
+].join(' ');
 
 let adminPool = null;
 let agentPool = null;
@@ -24,7 +31,7 @@ export function getAdminPool() {
 export function getAgentPool() {
   if (!agentPool) {
     if (!config.database.agentUrl) throw new Error('DOGECLAW_DATABASE_URL not set');
-    agentPool = new pg.Pool({ connectionString: config.database.agentUrl, options: AGENT_SEARCH_PATH });
+    agentPool = new pg.Pool({ connectionString: config.database.agentUrl, options: AGENT_OPTIONS });
   }
   return agentPool;
 }
