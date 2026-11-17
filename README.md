@@ -123,7 +123,7 @@ volumes:
   postgres_data:
 ```
 
-On boot, the agent applies any pending SQL migrations (connecting with the credentials above) and creates a restricted `dogeclaw` Postgres role with a fixed password (`dogeclaw-agent-pw`). The agent connects with this restricted role for its `database` tool, while admin operations use the `POSTGRES_USER` you set above. Multi-replica deploys are safe — a Postgres advisory lock serializes the migration step across replicas.
+On boot, the agent applies any pending SQL migrations (connecting with the credentials above) and creates a restricted `dogeclaw` Postgres role with a fixed password (`dogeclaw-agent-pw`). The agent connects with this restricted role for its `db_*` tools, while admin operations use the `POSTGRES_USER` you set above. Multi-replica deploys are safe — a Postgres advisory lock serializes the migration step across replicas.
 
 > Upgrading from v1.x? The old `dogeclaw-migrations` Flyway service is no longer needed. Remove it from your compose file when you upgrade — v2 will detect Flyway's history table on first boot and import its rows so V1..V12 don't re-run.
 
@@ -193,21 +193,23 @@ Configure models per-agent across three providers, all routed through one unifie
 Reusable knowledge / instructions stored in the DB, assignable per-agent (or marked public). The agent sees them in its system prompt as `[id] name: description` entries and uses the `read_skill` tool to pull the full content on demand — keeps system prompts compact while making large playbooks available.
 
 ### Built-in tools
-- **`shell_exec`** — run shell commands inside the container's workspace
-- **File ops** — read, write, list, delete files
-- **`schedule_cron`** — let the agent set up its own scheduled tasks
-- **`database`** — structured Postgres access via the restricted role: list/describe the agent's tables, select/insert/update/delete rows, raw SQL as escape hatch
-- **`web_search` / `web_fetch`** — search the web and fetch/parse pages with cheerio
-- **`http_request`** — raw HTTP calls for JSON/REST APIs
-- **`search_history`** — search the current conversation's full stored history
-- **MCP bridge** — connect any Model Context Protocol stdio server and expose its tools to the agent
-- **`read_skill`** — load a skill's full content on demand
+These are the exact names the model sees, so use them when a skill or system prompt refers to a tool. Update this section when a tool is added or renamed.
+
+- **`run_command`** (`tools/exec.js`) — run shell commands inside the container's workspace
+- **`file_operation`** (`tools/files.js`) — read, write, append, list and delete files in the workspace
+- **`add_cron` / `list_crons` / `get_cron` / `remove_cron`** (`tools/cron.js`) — let the agent manage its own scheduled tasks
+- **`db_list_tables` / `db_describe_table` / `db_run_sql`** (`tools/db.js`) — Postgres access via the restricted role: list and describe the agent's tables, run SQL (only registered when the agent DB URL is set)
+- **`web_search` / `web_fetch`** (`tools/web.js`) — search the web and fetch/parse pages with cheerio
+- **`http_request`** (`tools/http.js`) — raw HTTP calls for JSON/REST APIs
+- **`search_history`** (`tools/history.js`) — search the current conversation's full stored history
+- **`read_skill` / `create_skill` / `update_skill` / `delete_skill`** (`tools/skills.js`) — load a skill's full content on demand, and let the agent write and remove skills (only registered when the agent DB URL is set)
+- **MCP bridge** (`tools/mcp.js`) — connect any Model Context Protocol stdio server and expose its tools to the agent as `mcp_<server>_<tool>`
 
 ### Audio, image & video
 Media is forwarded straight to the model when its `accepts` list covers the type — Ollama via `images`, Gemini via `inline_data`. For models that don't accept a given media type, the LLM message gets an `[Attached: <type>]` placeholder so the model can acknowledge it and ask the user for text. No on-box transcription stack.
 
 ### Cron
-In-process cron scheduler. Both the agent (via the `schedule_cron` tool) and the admin UI can schedule recurring runs that hit a configured agent and (optionally) deliver the result to a Telegram chat.
+In-process cron scheduler. Both the agent (via the `add_cron` / `list_crons` / `get_cron` / `remove_cron` tools) and the admin UI can schedule recurring runs that hit a configured agent and (optionally) deliver the result to a Telegram chat.
 
 The schedule lives in Postgres: each job's `next_run_at` is checked every 15 seconds, and a run is claimed with a single guarded `UPDATE` before it starts, so it runs exactly once even across restarts or a second instance. A recurring run missed by more than 15 minutes (e.g. the container was down) is skipped; one-shots always fire.
 
