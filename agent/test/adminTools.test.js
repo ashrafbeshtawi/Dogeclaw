@@ -85,14 +85,14 @@ test('redactText scrubs well-known credential shapes', () => {
   const text = [
     'openrouter sk-or-v1-0123456789abcdef0123456789abcdef',
     'google AIzaSyA1234567890abcdefghijklmnopqrstuv',
-    'bot 123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsawq',
-    'Authorization: Bearer abcdefghijklmnop.qrstu',
+    'bot 123456789:' + 'T'.repeat(35),
+    'Authorization: Bearer ' + 'B'.repeat(24),
     'api_key=supersecretvalue123',
     'postgres://admin:hunter2@db:5432/x',
     'github ghp_abcdefghijklmnopqrstuvwxyz0123456789',
   ].join('\n');
   const out = redactText(text);
-  for (const leaked of ['sk-or-v1-0123', 'AIzaSyA123', 'AAHdqTcv', 'abcdefghijklmnop.qrstu', 'supersecretvalue123', 'hunter2', 'ghp_abc']) {
+  for (const leaked of ['sk-or-v1-0123', 'AIzaSyA123', 'TTTTTTTT', 'BBBBBBBB', 'supersecretvalue123', 'hunter2', 'ghp_abc']) {
     assert.equal(out.includes(leaked), false, leaked);
   }
   assert.match(out, /Bearer \[REDACTED\]/);
