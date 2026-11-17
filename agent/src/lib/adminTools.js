@@ -113,7 +113,8 @@ function dayKey(at) {
  * Stats over an agent's stored messages and cron runs in a time window.
  *
  * messages: [{ session_id, role, tool_calls, created_at, content_length, is_fallback }]
- *   ordered by session then id (the SQL in makeAdminHandlers guarantees it).
+ *   grouped by session, ids ascending inside a session (the SQL in
+ *   makeAdminHandlers guarantees it).
  * cronRuns: [{ status, duration_ms, error, created_at }]
  *
  * Latency is derived from stored timestamps: the user row is written before
@@ -123,6 +124,18 @@ function dayKey(at) {
  * end of the session) counts as unanswered — that is how a failed run looks
  * in storage, because the error path persists no assistant row.
  */
+/**
+ * Drops the last session of a capped result: the row cap can cut it in the
+ * middle, e.g. right after a user row, which would then count as unanswered.
+ * A result with only one session is kept as it is (truncated says so).
+ */
+export function dropCutSession(messages) {
+  if (!messages.length) return messages;
+  const last = messages[messages.length - 1].session_id;
+  const kept = messages.filter(m => m.session_id !== last);
+  return kept.length ? kept : messages;
+}
+
 export function summarizePerformance({ messages = [], cronRuns = [], days, truncated = false } = {}) {
   const sessions = new Set();
   const perDay = {};
@@ -559,6 +572,8 @@ export function makeAdminHandlers({ query, dispatch, onAgentsChanged = () => {} 
       if (!target) return { error: `Agent ${id} not found` };
       const window = clampInt(days, 7, 1, 90);
       const ROW_CAP = 5000;
+      // Newest sessions first (by their latest message in the window), so the
+      // cap drops the oldest sessions; ids stay ascending inside a session.
       const mRes = await query(
         `SELECT m.session_id, m.role, m.tool_calls, m.created_at,
                 LENGTH(m.content) AS content_length,
@@ -566,10 +581,11 @@ export function makeAdminHandlers({ query, dispatch, onAgentsChanged = () => {} 
                                         OR m.content LIKE 'I could not produce a reply%')) AS is_fallback
            FROM session_messages m JOIN sessions s ON s.id = m.session_id
           WHERE s.agent_id = $1 AND m.created_at >= NOW() - make_interval(days => $2)
-          ORDER BY m.session_id, m.id
+          ORDER BY MAX(m.id) OVER (PARTITION BY m.session_id) DESC, m.id
           LIMIT ${ROW_CAP}`,
         [id, window],
       );
+      const truncated = mRes.rows.length >= ROW_CAP;
       const cRes = await query(
         `SELECT status, duration_ms, error, created_at
            FROM event_logs
@@ -582,10 +598,10 @@ export function makeAdminHandlers({ query, dispatch, onAgentsChanged = () => {} 
       return {
         agent: { id: target.id, name: target.name },
         ...summarizePerformance({
-          messages: mRes.rows,
+          messages: truncated ? dropCutSession(mRes.rows) : mRes.rows,
           cronRuns: cRes.rows,
           days: window,
-          truncated: mRes.rows.length >= ROW_CAP,
+          truncated,
         }),
       };
     },

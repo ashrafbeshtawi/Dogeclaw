@@ -8,6 +8,7 @@ import {
   redactSecrets,
   redactText,
   REDACTED,
+  dropCutSession,
   summarizePerformance,
   makeAdminHandlers,
   makeAgentDispatcher,
@@ -286,6 +287,42 @@ test('analyzeAgentPerformance scopes queries to the agent and clamps the window'
   assert.deepEqual(msgQ.params, [2, 90]);
   const cronQ = q.calls.find(c => /FROM event_logs/.test(c.sql));
   assert.deepEqual(cronQ.params, ['2', 90]);
+});
+
+test('analyzeAgentPerformance reads the newest sessions first', async () => {
+  const q = fakeQuery([agentLookup]);
+  await makeAdminHandlers({ query: q, dispatch: fakeDispatch() })
+    .analyzeAgentPerformance({ agent_id: 2 }, adminCtx);
+  const msgQ = q.calls.find(c => /FROM session_messages m JOIN sessions s/.test(c.sql));
+  assert.match(msgQ.sql, /ORDER BY MAX\(m\.id\) OVER \(PARTITION BY m\.session_id\) DESC, m\.id/);
+});
+
+test('analyzeAgentPerformance at the row cap leaves out the session the cap cut', async () => {
+  // 4999 rows of a full session, then the first row of a session the cap cut:
+  // a user row whose answer is past the cap.
+  const t = new Date(Date.UTC(2026, 0, 1));
+  const rows = Array.from({ length: 4999 }, (_, i) => (
+    { session_id: 'full', role: i % 2 ? 'assistant' : 'user', created_at: t, content_length: 1 }
+  ));
+  rows.push({ session_id: 'cut', role: 'user', created_at: t });
+  const q = fakeQuery([agentLookup, [/FROM session_messages m JOIN sessions s/, { rows }]]);
+  const res = await makeAdminHandlers({ query: q, dispatch: fakeDispatch() })
+    .analyzeAgentPerformance({ agent_id: 2 }, adminCtx);
+  assert.equal(res.truncated, true);
+  assert.equal(res.conversations.active_sessions, 1);
+  // Only the last user row of 'full' (row 4998, no reply after it) is unanswered.
+  assert.equal(res.conversations.unanswered_user_messages, 1);
+});
+
+test('dropCutSession drops the last session, but never the only one', () => {
+  const rows = [
+    { session_id: 'b', role: 'user' },
+    { session_id: 'b', role: 'assistant' },
+    { session_id: 'a', role: 'user' },
+  ];
+  assert.deepEqual(dropCutSession(rows).map(r => r.session_id), ['b', 'b']);
+  assert.deepEqual(dropCutSession(rows.slice(0, 2)), rows.slice(0, 2));
+  assert.deepEqual(dropCutSession([]), []);
 });
 
 // --- messaging + loop guards ------------------------------------------------
