@@ -69,6 +69,8 @@ jobs:
         # camoufox fetch in the image build calls the GitHub API.
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          # Starts Camoufox too, for specs/browser-egress.spec.js.
+          DOGECLAW_BROWSER: 'true'
         run: docker compose up -d --build
 
       - name: Wait for the agent to come up
