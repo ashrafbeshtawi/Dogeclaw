@@ -1,44 +1,19 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dogeclaw">
+<html lang="en" data-theme="dogeclaw" class="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DogeClaw</title>
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-    <link rel="stylesheet" href="/static/app.css">
+  <script type="module" crossorigin src="/static/assets/login.js"></script>
+  <link rel="modulepreload" crossorigin href="/static/assets/rolldown-runtime.js">
+  <link rel="modulepreload" crossorigin href="/static/assets/vendor.js">
+  <link rel="modulepreload" crossorigin href="/static/assets/RareUiCredit.js">
+  <link rel="modulepreload" crossorigin href="/static/assets/password-input.js">
+  <link rel="modulepreload" crossorigin href="/static/assets/fluid-orb.js">
+  <link rel="stylesheet" crossorigin href="/static/assets/app.css">
 </head>
-<body class="login-bg min-h-screen flex items-center justify-center bg-base-200 p-4">
-    <div class="login-card card bg-base-300 border border-primary/20 shadow-2xl w-full max-w-sm">
-        <div class="card-body items-center pt-10 pb-8">
-            <img src="/static/logo.png" alt="DogeClaw" class="login-logo w-44">
-            <h1 class="text-2xl font-extrabold tracking-tight bg-gradient-to-br from-white to-accent bg-clip-text text-transparent">DogeClaw</h1>
-            <p class="text-xs text-base-content/50 mb-4 tracking-wide">wow. much AI. very agent.</p>
-            <form id="form" class="w-full flex flex-col gap-3">
-                <input type="text" name="user" placeholder="Username" autocomplete="username" required class="input w-full">
-                <input type="password" name="password" placeholder="Password" autocomplete="current-password" required class="input w-full">
-                <button type="submit" class="btn btn-primary w-full mt-1">Sign In</button>
-            </form>
-            <div class="error text-error text-sm text-center mt-3" id="error">Invalid credentials</div>
-            <div class="text-[0.7rem] text-base-content/40 tracking-widest mt-5">SUCH SECURE <span class="login-dot">●</span> VERY LOGIN <span class="login-dot">●</span> WOW</div>
-        </div>
-    </div>
-
-    <script>
-        document.getElementById('form').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const form = new FormData(e.target);
-            const res = await fetch('/api/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ user: form.get('user'), password: form.get('password') }),
-            });
-            if (res.ok) window.location.href = '/';
-            else {
-                const err = document.getElementById('error');
-                err.style.display = 'none';
-                requestAnimationFrame(() => { err.style.display = 'block'; });
-            }
-        });
-    </script>
+<body>
+    <div id="root"></div>
 </body>
 </html>
