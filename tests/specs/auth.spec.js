@@ -11,6 +11,22 @@ test('admin page redirects to /login when unauthenticated', async ({ page }) => 
   await expect(page).toHaveURL(/\/login$/);
 });
 
+test('login page doubles as the landing page', async ({ page }) => {
+  await page.goto('/login');
+  await expect(page.locator('h1')).toContainText('AI agents');
+  await expect(page.locator('.lp-feat')).toHaveCount(6);
+  // the sign-in form is part of the landing page, not a separate step
+  await expect(page.locator('#form input[name="user"]')).toBeVisible();
+  await expect(page.locator('#form button[type="submit"]')).toBeVisible();
+});
+
+test('landing page keeps the form usable on a phone', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/login');
+  // on narrow screens the card is stacked above the pitch, so it is in view
+  await expect(page.locator('#form input[name="user"]')).toBeInViewport();
+});
+
 test('invalid credentials show error', async ({ page }) => {
   await page.goto('/login');
   await page.fill('input[name="user"]', 'admin');
