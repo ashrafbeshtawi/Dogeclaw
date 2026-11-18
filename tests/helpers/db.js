@@ -14,7 +14,9 @@ const DB = process.env.POSTGRES_DB || 'dogeclaw';
 function psql(sql) {
   const out = execSync(
     `docker exec -i ${CONTAINER} psql -U ${USER} -d ${DB} -v ON_ERROR_STOP=1 -A -t -F '|'`,
-    { input: sql, encoding: 'utf-8' },
+    // stderr stays in the thrown error for tests that expect a failure, without
+    // also being echoed to the console (execSync's default).
+    { input: sql, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] },
   );
   return out.trim();
 }
