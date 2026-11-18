@@ -154,6 +154,8 @@ The `dogeclaw` Postgres role is created with a default, well-known password (`do
 | `DOGECLAW_TELEGRAM_MODE` | no | `polling` | `polling` or `webhook` |
 | `DOGECLAW_WEBHOOK_URL` | no | — | Public base URL when using `webhook` mode |
 | `SENTRY_DSN` | no | — | DSN of a Sentry-compatible project (e.g. GlitchTip); blank disables error reporting |
+| `DOGECLAW_BROWSER` | no | `false` | `true` starts Camoufox inside the container and registers the `browser_*` tools |
+| `DOGECLAW_BROWSER_PROXY_PORT` | no | `3129` | Localhost port of the egress proxy the browser's traffic goes through |
 
 Model API keys (OpenRouter, Google Gemini, etc.) are configured per-model **at runtime via the admin UI**, not via env vars.
 
@@ -200,10 +202,20 @@ These are the exact names the model sees, so use them when a skill or system pro
 - **`add_cron` / `list_crons` / `get_cron` / `remove_cron`** (`tools/cron.js`) — let the agent manage its own scheduled tasks
 - **`db_list_tables` / `db_describe_table` / `db_run_sql`** (`tools/db.js`) — Postgres access via the restricted role: list and describe the agent's tables, run SQL (only registered when the agent DB URL is set)
 - **`web_search` / `web_fetch`** (`tools/web.js`) — search the web and fetch/parse pages with cheerio
+- **`browser_open` / `browser_click` / `browser_type` / `browser_read` / `browser_screenshot` / `browser_close`** (`tools/browser.js`) — a real stealth browser ([Camoufox](https://camoufox.com)) for JS-rendered pages, logins and sites that block plain fetches (only registered when `DOGECLAW_BROWSER=true`, see below)
 - **`http_request`** (`tools/http.js`) — raw HTTP calls for JSON/REST APIs
 - **`search_history`** (`tools/history.js`) — search the current conversation's full stored history
 - **`read_skill` / `create_skill` / `update_skill` / `delete_skill`** (`tools/skills.js`) — load a skill's full content on demand, and let the agent write and remove skills (only registered when the agent DB URL is set)
 - **MCP bridge** (`tools/mcp.js`) — connect any Model Context Protocol stdio server and expose its tools to the agent as `mcp_<server>_<tool>`
+
+### Stealth browser (optional)
+The `browser_*` tools drive [Camoufox](https://camoufox.com), a Firefox build hardened against bot detection. It ships inside the DogeClaw image and runs in the same container as an unprivileged user, reached over Playwright's websocket protocol on localhost. Enable it with:
+
+```bash
+DOGECLAW_BROWSER=true docker compose up --build
+```
+
+Each conversation gets its own browser context (cookies and logins persist across tool calls) that closes after 10 minutes idle or on `browser_close`; at most 5 are open at once. The browser's only way out is an egress proxy inside the agent (`lib/egressProxy.js`): every connection, including redirect hops and WebSockets, is checked with the same SSRF guard as `web_fetch`, and the proxy connects to exactly the address it checked, so DNS rebinding can't slip past it. Localhost goes through the proxy too, WebRTC and service workers are off. Screenshots land in the workspace under `files/screenshots/`. The Python Playwright installed with Camoufox in the `Dockerfile` must match `playwright-core` in `agent/package.json`.
 
 ### Audio, image & video
 Media is forwarded straight to the model when its `accepts` list covers the type — Ollama via `images`, Gemini via `inline_data`. For models that don't accept a given media type, the LLM message gets an `[Attached: <type>]` placeholder so the model can acknowledge it and ask the user for text. No on-box transcription stack.

@@ -66,6 +66,11 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Bring up the stack
+        # camoufox fetch in the image build calls the GitHub API.
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          # Starts Camoufox too, for specs/browser-egress.spec.js.
+          DOGECLAW_BROWSER: 'true'
         run: docker compose up -d --build
 
       - name: Wait for the agent to come up
@@ -154,3 +159,4 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.image }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+          secrets: github_token=${{ github.token }}
