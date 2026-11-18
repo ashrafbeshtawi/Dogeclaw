@@ -3,7 +3,7 @@
 // or non-http(s) schemes. DNS lookup is injected so no real resolution runs.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { isPrivateAddress, assertPublicUrl } from '../src/lib/ssrfGuard.js';
+import { isPrivateAddress, assertPublicUrl, resolvePublicAddress } from '../src/lib/ssrfGuard.js';
 
 test('isPrivateAddress: private and special IPv4 ranges', () => {
   for (const ip of [
@@ -52,4 +52,13 @@ test('assertPublicUrl: accepts hostnames resolving only to public addresses', as
   const lookup = async () => [{ address: '93.184.216.34' }];
   const parsed = await assertPublicUrl('https://example.com/page?q=1', { lookup });
   assert.equal(parsed.hostname, 'example.com');
+});
+
+test('resolvePublicAddress: returns the checked address and refuses a mixed answer', async () => {
+  const lookup = async host => (host === 'mixed.test'
+    ? [{ address: '93.184.216.34' }, { address: '10.0.0.5' }]
+    : [{ address: '93.184.216.34' }, { address: '8.8.8.8' }]);
+  assert.equal(await resolvePublicAddress('example.test', { lookup }), '93.184.216.34');
+  await assert.rejects(resolvePublicAddress('mixed.test', { lookup }), /10\.0\.0\.5/);
+  await assert.rejects(resolvePublicAddress('empty.test', { lookup: async () => [] }), /Could not resolve/);
 });

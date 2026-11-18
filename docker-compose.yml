@@ -57,10 +57,10 @@ services:
       # — the seeder is safe to run with neither set.
       - DOGECLAW_FIXTURE_OPENROUTER_API_KEY=${DOGECLAW_FIXTURE_OPENROUTER_API_KEY:-}
       - DOGECLAW_FIXTURE_TELEGRAM_BOT_TOKEN=${DOGECLAW_FIXTURE_TELEGRAM_BOT_TOKEN:-}
-      # Playwright endpoint of the camoufox service below. Blank = no
-      # browser_* tools. Set to ws://camoufox:1234/camoufox together with
-      # `--profile browser`.
-      - DOGECLAW_CAMOUFOX_WS=${DOGECLAW_CAMOUFOX_WS:-}
+      # true = start Camoufox inside this container and register the
+      # browser_* tools. Its traffic goes through the agent's egress proxy.
+      - DOGECLAW_BROWSER=${DOGECLAW_BROWSER:-false}
+      - CAMOUFOX_HEADLESS=${CAMOUFOX_HEADLESS:-true}
     volumes:
       - agent_workspace:/root/agent-workspace
       - ./agent:/opt/agent
@@ -69,22 +69,11 @@ services:
       - ./migrations/sql:/opt/migrations/sql
     ports:
       - "3000:3000"
+    # Firefox needs more shared memory than Docker's 64 MB default.
+    shm_size: 1gb
     depends_on:
       postgres:
         condition: service_healthy
-    networks:
-      - dogeclaw
-
-  # Stealth Firefox for the browser_* tools. Opt-in:
-  #   DOGECLAW_CAMOUFOX_WS=ws://camoufox:1234/camoufox docker compose --profile browser up
-  # No host port: only the agent talks to it.
-  camoufox:
-    build: ./camoufox
-    container_name: dogeclaw-camoufox
-    profiles: ["browser"]
-    environment:
-      - CAMOUFOX_HEADLESS=${CAMOUFOX_HEADLESS:-true}
-    shm_size: 1gb
     networks:
       - dogeclaw
 

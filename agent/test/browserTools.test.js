@@ -24,8 +24,9 @@ function fakeBrowser() {
     isConnected: () => true,
     on() {},
     close: async () => {},
-    async newContext() {
+    async newContext(options) {
       log.contexts++;
+      log.contextOptions = options;
       let current = 'about:blank';
       const page = {
         async goto(url) { current = url; log.actions.push(['goto', url]); return { status: () => 200 }; },
@@ -160,9 +161,11 @@ test('idle contexts are closed after the timeout', async () => {
   assert.equal(sessions.has('a'), false);
 });
 
-test('every context routes requests through the guard', async () => {
+test('every context routes requests through the guard and blocks service workers', async () => {
   const { browser, sessions } = setup();
   await sessions.page('a');
+  // Service-worker fetches would skip the route handler.
+  assert.equal(browser.log.contextOptions.serviceWorkers, 'block');
   const [handler] = browser.log.routes;
   const run = async url => {
     let outcome;
@@ -179,11 +182,9 @@ test('every context routes requests through the guard', async () => {
   await sessions.closeAll();
 });
 
-test('isAllowedRequest: local schemes pass, websockets are guarded like http', async () => {
+test('isAllowedRequest: local schemes pass, other schemes are refused', async () => {
   assert.equal(await isAllowedRequest('data:text/plain,hi', publicGuard), true);
   assert.equal(await isAllowedRequest('about:blank', publicGuard), true);
-  assert.equal(await isAllowedRequest('wss://example.com/socket', publicGuard), true);
-  assert.equal(await isAllowedRequest('ws://internal/socket', publicGuard), false);
   assert.equal(await isAllowedRequest('chrome://settings', publicGuard), false);
   assert.equal(await isAllowedRequest('not a url', publicGuard), false);
 });

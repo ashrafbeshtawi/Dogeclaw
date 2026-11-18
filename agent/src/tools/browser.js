@@ -6,7 +6,7 @@ import { extractText, extractLinks } from '../lib/webExtract.js';
 
 // Real browser (Camoufox) for pages web_fetch cannot read: JS-rendered
 // pages, logins, sites that block plain fetches. Only registered when
-// DOGECLAW_CAMOUFOX_WS is set (see index.js). Same budget as web_fetch:
+// DOGECLAW_BROWSER=true (see index.js). Same budget as web_fetch:
 // agent.js truncates every tool result at 12000 chars of JSON.
 const TEXT_BUDGET = 8000;
 const LINK_BUDGET = 30;

@@ -25,6 +25,7 @@ import { register as registerSkills } from './tools/skills.js';
 import { register as registerHistory } from './tools/history.js';
 import { register as registerBrowser } from './tools/browser.js';
 import { BrowserSessions, connectCamoufox } from './lib/browserSessions.js';
+import { startEgressProxy } from './lib/egressProxy.js';
 
 async function main() {
   console.log('[dogeclaw] Starting...');
@@ -48,7 +49,8 @@ async function main() {
   registerWeb(registry);
   registerHistory(registry);
   if (config.database.agentUrl) registerSkills(registry);
-  if (config.browser.wsEndpoint) {
+  if (config.browser.enabled) {
+    await startEgressProxy({ port: config.browser.proxyPort });
     const sessions = new BrowserSessions({ connect: () => connectCamoufox(config.browser.wsEndpoint) });
     registerBrowser(registry, { sessions, filesDir: config.paths.files });
   }

@@ -20,10 +20,13 @@ const config = {
     mode: env.DOGECLAW_TELEGRAM_MODE || 'polling',
     webhookUrl: env.DOGECLAW_WEBHOOK_URL || '',
   },
-  // Playwright websocket of the Camoufox service (compose profile "browser").
-  // Blank = no browser_* tools.
+  // Camoufox runs inside this container; the entrypoint starts it when
+  // DOGECLAW_BROWSER=true, and only then are the browser_* tools registered.
+  // Its only way out is the egress proxy on proxyPort (lib/egressProxy.js).
   browser: {
-    wsEndpoint: env.DOGECLAW_CAMOUFOX_WS || '',
+    enabled: env.DOGECLAW_BROWSER === 'true',
+    wsEndpoint: 'ws://127.0.0.1:1234/camoufox',
+    proxyPort: Number(env.DOGECLAW_BROWSER_PROXY_PORT || 3129),
   },
   workspace: env.DOGECLAW_WORKSPACE || '/root/agent-workspace',
 };
