@@ -178,9 +178,11 @@ Define any number of agents with their own:
 Each agent is a separate persona with its own behavior and toolset.
 
 ### Multi-model providers
-Configure models per-agent across three providers, all routed through one unified streaming abstraction:
+Configure models per-agent across these providers, all routed through one unified streaming abstraction:
 - **Ollama** — local LLMs
 - **OpenRouter** — OpenAI-compatible gateway to hundreds of models
+- **Requesty** — OpenRouter-style gateway (base URL `https://router.requesty.ai/v1`)
+- **OpenAI-compatible** — any gateway exposing `POST <base>/chat/completions` (OrcaRouter, LiteLLM, vLLM, …); enter the vendor's OpenAI base URL including `/v1`
 - **Google Gemini** — including Gemini 3+ with `thoughtSignature` preservation
 
 ### Telegram bots

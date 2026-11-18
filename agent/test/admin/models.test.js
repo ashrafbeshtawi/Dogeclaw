@@ -51,6 +51,48 @@ test('onProviderChange reveals the API key only for remote providers', () => {
   } finally { dom.restore(); }
 });
 
+test('Requesty fills in its own base URL', () => {
+  const dom = installDom();
+  try {
+    dom.el('modelProvider').value = 'requesty';
+    onProviderChange();
+    assert.equal(dom.el('modelBaseUrl').value, 'https://router.requesty.ai/v1');
+    assert.equal(dom.el('apiKeyRow').style.display, 'block');
+  } finally { dom.restore(); }
+});
+
+test('OpenAI-compatible keeps a custom base URL but drops another preset', () => {
+  const dom = installDom();
+  try {
+    dom.el('modelProvider').value = 'openai-compatible';
+    dom.el('modelBaseUrl').value = 'https://gw.example/v1';
+    onProviderChange();
+    assert.equal(dom.el('modelBaseUrl').value, 'https://gw.example/v1');
+
+    dom.el('modelBaseUrl').value = 'https://openrouter.ai';
+    onProviderChange();
+    assert.equal(dom.el('modelBaseUrl').value, '');
+  } finally { dom.restore(); }
+});
+
+test('editing an OpenAI-compatible model keeps its saved base URL', () => {
+  const dom = installDom();
+  state.models = [{ ...MODEL, provider: 'openai-compatible', base_url: 'https://gw.example/v1' }];
+  try {
+    openModelModal(1);
+    assert.equal(dom.el('modelBaseUrl').value, 'https://gw.example/v1');
+  } finally { dom.restore(); state.models = []; }
+});
+
+test('editing an OpenAI-compatible model keeps a saved preset base URL', () => {
+  const dom = installDom();
+  state.models = [{ ...MODEL, provider: 'openai-compatible', base_url: 'https://router.requesty.ai/v1' }];
+  try {
+    openModelModal(1);
+    assert.equal(dom.el('modelBaseUrl').value, 'https://router.requesty.ai/v1');
+  } finally { dom.restore(); state.models = []; }
+});
+
 test('openModelModal fills the form from an existing model', () => {
   const dom = installDom();
   state.models = [MODEL];

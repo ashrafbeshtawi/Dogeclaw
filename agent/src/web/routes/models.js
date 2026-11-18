@@ -2,6 +2,14 @@ import express from 'express';
 import { adminQuery as query } from '../../db/pool.js';
 import { reloadTelegram } from '../managers.js';
 
+// Chat-completions path per OpenAI-dialect provider, relative to the model's
+// base URL. Mirrors the adapters in src/llm/.
+const OPENAI_PATHS = {
+  openrouter: '/api/v1/chat/completions',
+  requesty: '/chat/completions',
+  'openai-compatible': '/chat/completions',
+};
+
 // Mounted under /api behind authMiddleware in server.js; no per-route guards needed.
 export function modelsRoutes() {
   const router = express.Router();
@@ -40,8 +48,8 @@ export function modelsRoutes() {
   router.post('/models/test', async (req, res) => {
     const { provider, base_url, model_id, api_key } = req.body;
     try {
-      if (provider === 'openrouter') {
-        const r = await fetch(`${base_url}/api/v1/chat/completions`, {
+      if (provider in OPENAI_PATHS) {
+        const r = await fetch(`${(base_url || '').replace(/\/+$/, '')}${OPENAI_PATHS[provider]}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${api_key}` },
           body: JSON.stringify({ model: model_id, messages: [{ role: 'user', content: 'Say "ok" and nothing else.' }], max_tokens: 10 }),
