@@ -34,7 +34,10 @@ services:
       - dogeclaw
 
   dogeclaw:
-    build: .
+    build:
+      context: .
+      # Optional: lifts the GitHub API rate limit for `camoufox fetch`.
+      secrets: [github_token]
     container_name: dogeclaw
     environment:
       - DOGECLAW_PORT=${DOGECLAW_PORT:-3000}
@@ -76,6 +79,10 @@ services:
         condition: service_healthy
     networks:
       - dogeclaw
+
+secrets:
+  github_token:
+    environment: GITHUB_TOKEN
 
 volumes:
   postgres_data:
