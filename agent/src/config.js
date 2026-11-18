@@ -1,6 +1,9 @@
 import { buildDatabaseUrls } from './lib/databaseUrls.js';
+import { resolveWebSecret } from './web/auth.js';
 
 const env = process.env;
+// Unset, short or publicly known secrets are swapped for a random one; see web/auth.js.
+const webSecret = resolveWebSecret(env.DOGECLAW_WEB_SECRET);
 
 const config = {
   ollama: {
@@ -10,7 +13,8 @@ const config = {
     port: parseInt(env.DOGECLAW_PORT || '3000', 10),
     user: env.DOGECLAW_WEB_USER || 'admin',
     password: env.DOGECLAW_WEB_PASSWORD || 'changeme',
-    secret: env.DOGECLAW_WEB_SECRET || 'dogeclaw-default-secret-change-me',
+    secret: webSecret.secret,
+    secretGenerated: webSecret.generated,
   },
   // URLs are derived from POSTGRES_* primitives (see lib/databaseUrls.js).
   // DOGECLAW_ADMIN_DATABASE_URL / DOGECLAW_DATABASE_URL are still honored

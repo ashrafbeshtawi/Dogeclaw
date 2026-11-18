@@ -1,8 +1,8 @@
 import express from 'express';
-import { createHmac } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import config from '../config.js';
+import { TOKEN_MAX_AGE_S, checkCredentials, issueToken, verifyToken } from './auth.js';
 
 import { agentsRoutes } from './routes/agents.js';
 import { channelsRoutes } from './routes/channels.js';
@@ -22,13 +22,9 @@ export { setTelegramManager, setMcpManager } from './managers.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-function sign(data) {
-  return createHmac('sha256', config.web.secret).update(data).digest('hex');
-}
-
 function authMiddleware(req, res, next) {
   const token = req.headers.cookie?.match(/dogeclaw_token=([^;]+)/)?.[1];
-  if (!token || sign('authenticated') !== token) {
+  if (!verifyToken(token, config.web)) {
     // For page requests, redirect to login
     if (req.accepts('html')) return res.redirect('/login');
     return res.status(401).json({ error: 'unauthorized' });
@@ -48,9 +44,9 @@ export function createWebServer(agent) {
 
   app.post('/api/login', (req, res) => {
     const { user, password } = req.body;
-    if (user === config.web.user && password === config.web.password) {
-      const token = sign('authenticated');
-      res.setHeader('Set-Cookie', `dogeclaw_token=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=86400`);
+    if (checkCredentials(user, password, config.web)) {
+      const token = issueToken(config.web);
+      res.setHeader('Set-Cookie', `dogeclaw_token=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${TOKEN_MAX_AGE_S}`);
       return res.json({ ok: true });
     }
     res.status(401).json({ error: 'invalid credentials' });
