@@ -13,7 +13,7 @@ import { getAgentMcpServerNames } from './db/mcpServers.js';
 import { hasActiveSearchEngine } from './db/searchEngines.js';
 import { getTimezone } from './db/settings.js';
 import { isAdminAgent } from './db/agentRuntime.js';
-import { filterAdminTools } from './lib/adminTools.js';
+import { filterAdminTools, UNTRUSTED_DATA_RULE } from './lib/adminTools.js';
 
 const MAX_ITERATIONS = 50;
 
@@ -70,7 +70,7 @@ export class Agent {
       .map(e => formatToolLine(e.definition))
       .join('\n');
 
-    return composeSystemPrompt({
+    const prompt = composeSystemPrompt({
       customPrompt,
       agentName,
       workspace: config.paths.files,
@@ -78,6 +78,8 @@ export class Agent {
       skillsBlock: await this.#buildSkillsBlock(agentId),
       mcpGroups: groupEntriesByServer(entries),
     });
+    // Admin tools hand back text from users, web pages and other agents.
+    return entries.some(e => e.meta?.adminOnly) ? `${prompt}\n\n${UNTRUSTED_DATA_RULE}` : prompt;
   }
 
   // Build the full message array for the LLM: system prompt, replayed

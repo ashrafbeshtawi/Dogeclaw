@@ -9,11 +9,13 @@ import assert from 'node:assert/strict';
 const admins = new Set([1]);
 let script = [];
 const offeredTools = [];
+const systemPrompts = [];
 
 mock.module('../src/llm.js', {
   namedExports: {
     chat: async (messages, tools) => {
       offeredTools.push(tools.map(t => t.function.name));
+      systemPrompts.push(messages[0].content);
       return script.shift() || { content: 'done' };
     },
     chatStream: async () => ({ content: 'done' }),
@@ -26,6 +28,7 @@ mock.module('../src/db/settings.js', { namedExports: { getTimezone: async () => 
 mock.module('../src/db/agentRuntime.js', { namedExports: { isAdminAgent: async id => admins.has(id) } });
 
 const { Agent } = await import('../src/agent.js');
+const { UNTRUSTED_DATA_RULE } = await import('../src/lib/adminTools.js');
 const { ToolRegistry } = await import('../src/tools/index.js');
 
 function setup() {
@@ -55,6 +58,16 @@ test('normal agents are not offered the admin tools', async () => {
   await agent.run('hi', [], opts(2));
   assert.equal(offeredTools[0].includes('list_agents'), false);
   assert.ok(offeredTools[0].includes('shell_exec'));
+});
+
+test('only admin agents get the untrusted-data rule in their system prompt', async () => {
+  systemPrompts.length = 0;
+  script = [];
+  const { agent } = setup();
+  await agent.run('hi', [], opts(1));
+  await agent.run('hi', [], opts(2));
+  assert.ok(systemPrompts[0].includes(UNTRUSTED_DATA_RULE));
+  assert.equal(systemPrompts[1].includes(UNTRUSTED_DATA_RULE), false);
 });
 
 test('a normal agent calling an admin tool by name is refused', async () => {
