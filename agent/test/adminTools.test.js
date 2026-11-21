@@ -268,6 +268,36 @@ test('tool call summaries redact secret keys before the 300-char cut', async () 
   assert.equal(summary[1].result, `{"token":"${REDACTED}"}`);
 });
 
+test('summarizeToolCalls redacts headers passed as a JSON string and secrets in a response body', () => {
+  const headers = JSON.stringify({ Authorization: 'Basic dXNlcjpwYXNz', Cookie: 'sid=abc123; theme=dark' });
+  const body = '{"access_token":"at-1234567","refresh_token":"rt-7654321","expires_in":3600}';
+  const summary = summarizeToolCalls([
+    { name: 'http_request', args: { url: 'https://example.com', headers }, result: { status: 200, body } },
+  ]);
+  assert.doesNotMatch(summary[0].args, /dXNlcjpwYXNz|sid=abc123/);
+  assert.match(summary[0].args, /Authorization\\":\\"\[REDACTED\]/);
+  assert.doesNotMatch(summary[0].result, /at-1234567|rt-7654321/);
+  assert.match(summary[0].result, /expires_in\\":3600/);
+});
+
+test('redactText scrubs Basic auth, cookies and refresh tokens in free text', () => {
+  const text = [
+    'Authorization: Basic dXNlcjpwYXNzd29yZA==',
+    'Cookie: sid=abc123; theme=dark',
+    'cut body ..."refresh_token":"rt-7654321","x',
+    'x-api-key: plain-value-1234',
+  ].join('\n');
+  const out = redactText(text);
+  for (const leaked of ['dXNlcjpw', 'sid=abc123', 'theme=dark', 'rt-7654321', 'plain-value-1234']) {
+    assert.equal(out.includes(leaked), false, leaked);
+  }
+  assert.match(out, /Authorization: Basic \[REDACTED\]/);
+  assert.match(out, /Cookie: \[REDACTED\]/);
+  assert.match(out, /"refresh_token":"\[REDACTED\]"/);
+  // Already-redacted Bearer values stay readable.
+  assert.equal(redactText('Authorization: Bearer ' + 'B'.repeat(24)), `Authorization: Bearer ${REDACTED}`);
+});
+
 // --- performance ------------------------------------------------------------
 
 test('summarizePerformance computes volume, latency, tool errors and unanswered turns', () => {

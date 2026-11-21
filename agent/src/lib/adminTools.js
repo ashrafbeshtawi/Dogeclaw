@@ -41,10 +41,12 @@ export function filterAdminTools(entries, isAdmin) {
 
 export const REDACTED = '[REDACTED]';
 
-// Object keys whose string values are always secrets. Anchored on the whole
-// key (optionally prefixed, e.g. bot_token / x-api-key) so counters like
-// max_tokens or prompt_tokens are left alone.
-const SECRET_KEY_RE = /^(?:.*[_-])?(?:api[_-]?key|apikey|token|access[_-]?token|refresh[_-]?token|secret|client[_-]?secret|password|passwd|authorization|cookie|private[_-]?key|credentials?)$/i;
+// Key names whose values are always secrets, shared by the object-key check
+// and the "key: value" scrub of free text.
+const SECRET_KEYS = 'api[_-]?key|apikey|token|access[_-]?token|refresh[_-]?token|secret|client[_-]?secret|password|passwd|authorization|cookie|private[_-]?key|credentials?';
+// Anchored on the whole key (optionally prefixed, e.g. bot_token / x-api-key)
+// so counters like max_tokens or prompt_tokens are left alone.
+const SECRET_KEY_RE = new RegExp(`^(?:.*[_-])?(?:${SECRET_KEYS})$`, 'i');
 
 // Well-known credential shapes, scrubbed from free text.
 const SECRET_VALUE_PATTERNS = [
@@ -57,8 +59,15 @@ const SECRET_VALUE_PATTERNS = [
   /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g, // JWTs
 ];
 // "Bearer <token>" and "api_key=<value>" style assignments keep their label.
+// An auth scheme (Authorization: Basic ...) stays part of the label so the
+// credential after it is what gets scrubbed.
 const BEARER_RE = /\b(Bearer\s+)[A-Za-z0-9._~+/-]{8,}=*/gi;
-const ASSIGNMENT_RE = /\b((?:api[_-]?key|apikey|access[_-]?token|token|secret|client[_-]?secret|password|passwd)["']?\s*[:=]\s*["']?)[^\s"'&,;}]{4,}/gi;
+const ASSIGNMENT_RE = new RegExp(
+  `\\b((?:[A-Za-z0-9]+[_-])*(?:${SECRET_KEYS})["']?\\s*[:=]\\s*["']?(?:(?:Basic|Bearer|Digest|Token)\\s+)?)[^\\s"'&,;}]{4,}`,
+  'gi',
+);
+// A Cookie header holds several "name=value;" pairs: scrub the whole value.
+const COOKIE_RE = /\b((?:set-)?cookie["']?\s*[:=]\s*["']?)[^"'\r\n]{4,}/gi;
 // Credentials embedded in a URL: scheme://user:pass@host
 const URL_USERINFO_RE = /\b([a-z][a-z0-9+.-]*:\/\/)[^\s/@:]+:[^\s/@]+@/gi;
 
@@ -67,15 +76,30 @@ export function redactText(text) {
   let out = text;
   for (const re of SECRET_VALUE_PATTERNS) out = out.replace(re, REDACTED);
   out = out.replace(BEARER_RE, `$1${REDACTED}`);
+  out = out.replace(COOKIE_RE, `$1${REDACTED}`);
   out = out.replace(ASSIGNMENT_RE, `$1${REDACTED}`);
   out = out.replace(URL_USERINFO_RE, `$1${REDACTED}@`);
   return out;
 }
 
+// A string holding a JSON object or array (http_request headers passed as a
+// string, a response body) gets the key-based redaction too.
+function redactJsonString(text, depth) {
+  if (!/^\s*[[{]/.test(text)) return null;
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (parsed === null || typeof parsed !== 'object') return null;
+  return JSON.stringify(redactSecrets(parsed, depth + 1));
+}
+
 /** Deep copy of `value` with secrets scrubbed from keys and free text. */
 export function redactSecrets(value, depth = 0) {
   if (depth > 20) return '[…]';
-  if (typeof value === 'string') return redactText(value);
+  if (typeof value === 'string') return redactJsonString(value, depth) ?? redactText(value);
   if (value === null || typeof value !== 'object') return value;
   if (value instanceof Date) return value;
   if (Array.isArray(value)) return value.map(v => redactSecrets(v, depth + 1));
