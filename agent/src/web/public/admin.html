@@ -247,6 +247,8 @@
             <label>Skills</label>
             <div id="agentSkillsCheckboxes" class="max-h-40 overflow-y-auto border border-white/10 rounded-md p-2 bg-white/[0.02]"></div>
             <div class="field-hint">Select skills to assign. Unselected public skills are still available.</div>
+            <div class="dc-toggle"><input type="checkbox" class="toggle toggle-primary toggle-sm" id="agentIsAdmin"><label for="agentIsAdmin">Admin agent</label></div>
+            <div class="field-hint">Admin agents can inspect, create, edit, analyze and message the other agents.</div>
             <div class="btn-row">
                 <button class="btn btn-sm btn-ghost border border-white/10 btn-cancel" onclick="closeModal('agentModal')">Cancel</button>
                 <button class="btn btn-sm btn-primary btn-save" onclick="saveAgent()">Save</button>

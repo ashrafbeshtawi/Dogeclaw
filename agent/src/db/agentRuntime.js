@@ -44,6 +44,12 @@ export function toModelConfig(row) {
   };
 }
 
+/** True when the agent is flagged is_admin (gets the admin tool set). */
+export async function isAdminAgent(agentId) {
+  const res = await adminQuery('SELECT is_admin FROM agents WHERE id = $1', [agentId]);
+  return !!res.rows[0]?.is_admin;
+}
+
 /** Returns { agent, modelConfig } for an agent id, or null if no such agent. */
 export async function loadAgentRuntime(agentId) {
   const res = await adminQuery(

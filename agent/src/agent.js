@@ -12,6 +12,8 @@ import { hideSearchTools } from './lib/searchProviders.js';
 import { getAgentMcpServerNames } from './db/mcpServers.js';
 import { hasActiveSearchEngine } from './db/searchEngines.js';
 import { getTimezone } from './db/settings.js';
+import { isAdminAgent } from './db/agentRuntime.js';
+import { filterAdminTools, UNTRUSTED_DATA_RULE } from './lib/adminTools.js';
 
 const MAX_ITERATIONS = 50;
 
@@ -40,6 +42,10 @@ export class Agent {
     if (entries.some(e => e.meta?.requiresSearchEngine)) {
       entries = hideSearchTools(entries, await hasActiveSearchEngine());
     }
+    // Admin tools (tools/admin.js) exist only for agents flagged is_admin.
+    if (entries.some(e => e.meta?.adminOnly)) {
+      entries = filterAdminTools(entries, agentId ? await isAdminAgent(agentId) : false);
+    }
     if (!entries.some(e => e.meta?.mcpServer)) return entries;
     const allowedServers = agentId ? await getAgentMcpServerNames(agentId) : [];
     return filterVisibleEntries(entries, allowedServers);
@@ -64,7 +70,7 @@ export class Agent {
       .map(e => formatToolLine(e.definition))
       .join('\n');
 
-    return composeSystemPrompt({
+    const prompt = composeSystemPrompt({
       customPrompt,
       agentName,
       workspace: config.paths.files,
@@ -72,6 +78,8 @@ export class Agent {
       skillsBlock: await this.#buildSkillsBlock(agentId),
       mcpGroups: groupEntriesByServer(entries),
     });
+    // Admin tools hand back text from users, web pages and other agents.
+    return entries.some(e => e.meta?.adminOnly) ? `${prompt}\n\n${UNTRUSTED_DATA_RULE}` : prompt;
   }
 
   // Build the full message array for the LLM: system prompt, replayed
@@ -165,6 +173,9 @@ export class Agent {
     const channelId = opts.channelId ?? null;
     const chatId = opts.chatId ?? null;
     const sessionId = opts.sessionId ?? null;
+    // > 0 when this run was triggered by another agent's message (admin
+    // tools); the messaging tools refuse to nest, which bounds the chain.
+    const callDepth = opts.callDepth ?? 0;
     const entries = await this.#loadVisibleToolEntries(agentId);
     const systemPrompt = await this.#buildSystemPrompt(opts.systemPrompt, agentId, entries, opts.agentName || null);
     const mc = opts.modelConfig || {};
@@ -259,7 +270,7 @@ export class Agent {
       if (onEvent) onEvent('tool_calls', response.tool_calls);
 
       await this.#executeToolCalls(response.tool_calls, {
-        context: { agentId, channelId, chatId, sessionId },
+        context: { agentId, channelId, chatId, sessionId, callDepth },
         visibleNames,
         messages,
         collectedToolCalls,

@@ -23,6 +23,7 @@ import { register as registerDb } from './tools/db.js';
 import { register as registerWeb } from './tools/web.js';
 import { register as registerSkills } from './tools/skills.js';
 import { register as registerHistory } from './tools/history.js';
+import { register as registerAdmin } from './tools/admin.js';
 
 async function main() {
   console.log('[dogeclaw] Starting...');
@@ -56,6 +57,9 @@ async function main() {
 
   // Agent
   const agent = new Agent(registry);
+  // Admin tools message other agents through the agent loop, so they are
+  // registered once the Agent exists. Visible only to is_admin agents.
+  if (config.database.agentUrl) registerAdmin(registry, agent);
 
   // Telegram + cron runner. Telegram is constructed up-front so the cron
   // dispatcher can push messages back through it.

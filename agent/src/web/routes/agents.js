@@ -15,22 +15,24 @@ export function agentsRoutes() {
     res.json({ agents: result.rows });
   });
 
+  // is_admin grants the admin ("god") tool set — see tools/admin.js. Only
+  // this operator-facing API can set it; the admin tools never do.
   router.post('/agents', async (req, res) => {
-    const { name, system_prompt, model_id } = req.body;
+    const { name, system_prompt, model_id, is_admin } = req.body;
     if (!name) return res.status(400).json({ error: 'name required' });
     const result = await query(
-      'INSERT INTO agents (name, system_prompt, model_id) VALUES ($1, $2, $3) RETURNING *',
-      [name, system_prompt || '', model_id || null],
+      'INSERT INTO agents (name, system_prompt, model_id, is_admin) VALUES ($1, $2, $3, $4) RETURNING *',
+      [name, system_prompt || '', model_id || null, is_admin === true],
     );
     res.json(result.rows[0]);
     reloadTelegram();
   });
 
   router.put('/agents/:id', async (req, res) => {
-    const { name, system_prompt, model_id } = req.body;
+    const { name, system_prompt, model_id, is_admin } = req.body;
     const result = await query(
-      'UPDATE agents SET name = COALESCE($1, name), system_prompt = COALESCE($2, system_prompt), model_id = COALESCE($3, model_id) WHERE id = $4 RETURNING *',
-      [name, system_prompt, model_id, req.params.id],
+      'UPDATE agents SET name = COALESCE($1, name), system_prompt = COALESCE($2, system_prompt), model_id = COALESCE($3, model_id), is_admin = COALESCE($4, is_admin) WHERE id = $5 RETURNING *',
+      [name, system_prompt, model_id, typeof is_admin === 'boolean' ? is_admin : null, req.params.id],
     );
     if (result.rowCount === 0) return res.status(404).json({ error: 'not found' });
     res.json(result.rows[0]);
