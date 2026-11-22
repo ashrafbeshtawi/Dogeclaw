@@ -10,6 +10,7 @@ import { RareUiCredit } from '@/RareUiCredit';
 import { api } from '@/api';
 import { ToolCallModal, ToolCallsBlock } from './ToolCalls';
 import { attachResult, type ToolCall } from './toolCalls';
+import { updateByKey } from './messages';
 
 type Agent = { id: number; name: string; model_id: number | null };
 type Session = { id: string; source?: string; preview?: string };
@@ -49,6 +50,8 @@ function Chat() {
   const fileInput = useRef<HTMLInputElement>(null);
   const recorder = useRef<MediaRecorder | null>(null);
   const messagesEl = useRef<HTMLDivElement>(null);
+  // The reply that is streaming right now, so it can be stopped or dropped.
+  const activeReply = useRef<{ key: number; controller: AbortController } | null>(null);
 
   const closeInspector = useCallback(() => setInspected(null), []);
   const previewUrl = useMemo(() => (pendingFile?.type.startsWith('image/') ? URL.createObjectURL(pendingFile) : null), [pendingFile]);
@@ -77,7 +80,19 @@ function Chat() {
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages]);
 
+  // Stops reading the streaming reply; its remaining events are dropped.
+  function stopStream() {
+    const current = activeReply.current;
+    if (!current) return;
+    current.controller.abort();
+    activeReply.current = null;
+    setSending(false);
+    // Still shown (Stop button): keep what arrived and end the live status.
+    setMessages((list) => updateByKey(list, current.key, () => ({ live: null })));
+  }
+
   function newSession() {
+    stopStream();
     setDrawerOpen(false);
     setSessionId(null);
     setMessages([]);
@@ -85,6 +100,7 @@ function Chat() {
   }
 
   async function switchSession(id: string) {
+    stopStream();
     setDrawerOpen(false);
     setSessionId(id);
     const res = await fetch('/api/sessions/' + id);
@@ -142,7 +158,15 @@ function Chat() {
       rec.onstop = () => {
         stream.getTracks().forEach((t) => t.stop());
         const blob = new Blob(chunks, { type: rec.mimeType });
-        send('', new File([blob], 'recording.webm', { type: rec.mimeType }));
+        const file = new File([blob], 'recording.webm', { type: rec.mimeType });
+        // onstop runs long after this render: go through the ref for the
+        // current session, agent and streaming state.
+        if (activeReply.current) {
+          setPendingFile(file);
+          toast('Voice message attached, send it once the reply is done');
+        } else {
+          sendRef.current('', file);
+        }
       };
       rec.start();
       recorder.current = rec;
@@ -157,14 +181,9 @@ function Chat() {
     if (fileInput.current) fileInput.current.value = '';
   }
 
-  // Applies a change to the reply that is streaming (always the last message).
-  function updateReply(change: (reply: Message) => Partial<Message>) {
-    setMessages((list) => list.map((m, i) => (i === list.length - 1 ? { ...m, ...change(m) } : m)));
-  }
-
   async function send(text: string, file: File | null = pendingFile) {
     text = text.trim();
-    if (isSending || (!text && !file)) return;
+    if (activeReply.current || (!text && !file)) return;
     setInput('');
     const isAudio = !!file && file.type.startsWith('audio/');
     const isImage = !!file && file.type.startsWith('image/');
@@ -172,7 +191,15 @@ function Chat() {
     if (text) sent.push(userMessage(text));
     if (isImage) sent.push(userMessage('[image: ' + file!.name + ']'));
     if (isAudio) sent.push(userMessage('[voice message]'));
-    setMessages((list) => [...list, ...sent, { key: nextKey++, role: 'assistant', content: '', live: BUSY }]);
+    const replyKey = nextKey++;
+    const own = { key: replyKey, controller: new AbortController() };
+    activeReply.current = own;
+    const isCurrent = () => activeReply.current === own;
+    // Changes this reply only while it is still the one streaming.
+    const updateReply = (change: (reply: Message) => Partial<Message>) => {
+      if (isCurrent()) setMessages((list) => updateByKey(list, replyKey, change));
+    };
+    setMessages((list) => [...list, ...sent, { key: replyKey, role: 'assistant', content: '', live: BUSY }]);
     setSending(true);
 
     let images = null, audio = null, audioMime = null;
@@ -185,6 +212,7 @@ function Chat() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: text, sessionId, agentId, images, audio, audioMime }),
+        signal: own.controller.signal,
       });
       if (res.status === 401) { window.location.href = '/login'; return; }
 
@@ -200,19 +228,25 @@ function Chat() {
         for (const line of lines) {
           if (line.startsWith('event: ')) { eventType = line.slice(7); continue; }
           if (!line.startsWith('data: ') || !eventType) continue;
-          onEvent(eventType, JSON.parse(line.slice(6)));
+          if (isCurrent()) onEvent(eventType, JSON.parse(line.slice(6)), updateReply);
           eventType = null;
         }
       }
       updateReply(() => ({ live: null }));
     } catch (err: any) {
-      updateReply(() => ({ content: 'Error: ' + err.message, live: null }));
+      // A stopped stream (Stop button, session switch) is not an error.
+      if (!own.controller.signal.aborted) updateReply(() => ({ content: 'Error: ' + err.message, live: null }));
     } finally {
-      setSending(false);
+      if (isCurrent()) {
+        activeReply.current = null;
+        setSending(false);
+      }
     }
   }
+  const sendRef = useRef(send);
+  sendRef.current = send;
 
-  function onEvent(type: string, data: any) {
+  function onEvent(type: string, data: any, updateReply: (change: (reply: Message) => Partial<Message>) => void) {
     if (type === 'status') updateReply((r) => ({ live: { state: r.live?.state ?? 'thinking', label: data } }));
     else if (type === 'thinking') updateReply((r) => ({ thinking: (r.thinking || '') + data, live: { state: 'thinking', label: 'Thinking...' } }));
     else if (type === 'content') updateReply((r) => ({ content: r.content + data, live: { state: 'writing', label: 'Generating...' } }));
@@ -312,6 +346,7 @@ function Chat() {
             onValueChange={setInput}
             onSubmit={(text) => send(text)}
             status={isSending ? 'streaming' : 'idle'}
+            onStop={stopStream}
             disabled={isLoaded && !isReady}
             allowEmpty={!!pendingFile}
             placeholder={placeholder}
