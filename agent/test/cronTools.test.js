@@ -113,6 +113,35 @@ test('addCron: binds to the calling conversation and defaults the timezone', asy
   assert.equal(web.created.expression, null);
 });
 
+test('addCron: refuses recurring jobs that fire more often than every 5 minutes', async () => {
+  const { deps, calls } = makeDeps();
+  const h = makeCronHandlers(deps);
+  for (const expression of ['* * * * *', '*/2 * * * *', '*/15 * * * * *', '0,1 9 * * *']) {
+    assert.match((await h.addCron({ expression, prompt: 'p' }, tgCtx)).error, /more often than every 5 minutes/, expression);
+  }
+  assert.equal(calls.created.length, 0);
+
+  assert.equal((await h.addCron({ expression: '*/5 * * * *', prompt: 'p' }, tgCtx)).created.id, 42);
+  assert.equal((await h.addCron({ run_at: '2026-10-01T07:00:00Z', prompt: 'p' }, tgCtx)).created.id, 42);
+});
+
+test('addCron: at most 20 active jobs per conversation', async () => {
+  const own = Array.from({ length: 20 }, (_, i) => job(i + 1));
+  const full = makeCronHandlers(makeDeps(own).deps);
+  assert.match((await full.addCron({ expression: '0 8 * * *', prompt: 'p' }, tgCtx)).error, /max 20/);
+
+  // Disabled jobs and other conversations' jobs don't count.
+  const others = [
+    ...Array.from({ length: 19 }, (_, i) => job(i + 1)),
+    job(50, { enabled: false }),
+    job(51, { target: { ...tgTarget, channelId: 7 } }),
+  ];
+  const { deps, calls } = makeDeps(others);
+  const h = makeCronHandlers(deps);
+  assert.equal((await h.addCron({ expression: '0 8 * * *', prompt: 'p' }, tgCtx)).created.id, 42);
+  assert.equal(calls.created.length, 1);
+});
+
 test('addCron: validation errors before any write', async () => {
   const { deps, calls } = makeDeps();
   const h = makeCronHandlers(deps);

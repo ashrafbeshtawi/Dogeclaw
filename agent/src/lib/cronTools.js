@@ -7,11 +7,42 @@
 // (telegram channel+chat, or web session); list/get/remove enforce the
 // same boundary via ownsJob — foreign ids read as "not found" on purpose.
 
+//
+// Limits: every run is a full agent loop, and the model picks the schedule
+// (possibly steered by a prompt-injected page), so add_cron refuses
+// recurring jobs that fire more often than every 5 minutes and caps the
+// enabled jobs per conversation. The admin API is not limited.
+
+import { CronExpressionParser } from 'cron-parser';
 import { ownsJob } from './cronOwnership.js';
 
 const LIST_LIMIT_DEFAULT = 20;
 const LIST_LIMIT_MAX = 50;
 const PROMPT_PREVIEW_LEN = 120;
+const MIN_INTERVAL_MS = 5 * 60_000;
+const MAX_JOBS_PER_CONVERSATION = 20;
+// Upcoming runs compared for the shortest gap: catches bursts like
+// "0,1 9 * * *" that a single gap between two runs could miss.
+const INTERVAL_SAMPLE = 50;
+
+// Shortest gap in ms between the next runs, or null when the expression does
+// not parse (createJob reports that error).
+function shortestGapMs(expression, timezone) {
+  let runs;
+  try {
+    runs = CronExpressionParser.parse(expression, { tz: timezone, currentDate: new Date() });
+  } catch {
+    return null;
+  }
+  let prev = runs.next().getTime();
+  let shortest = Infinity;
+  for (let i = 0; i < INTERVAL_SAMPLE; i++) {
+    const next = runs.next().getTime();
+    shortest = Math.min(shortest, next - prev);
+    prev = next;
+  }
+  return shortest;
+}
 
 // Compact row for listings: full prompts pushed a 24-job list past the 12k
 // tool-result cap, and the model read the cut-off tail as "these jobs don't
@@ -57,6 +88,16 @@ export function makeCronHandlers({ listJobs, getJob, createJob, deleteJob, getTi
 
       const isTelegram = !!(channelId && chatId);
       const tz = timezone || (await getTimezone());
+      if (expression) {
+        const gap = shortestGapMs(expression, tz);
+        if (gap !== null && gap < MIN_INTERVAL_MS) {
+          return { error: `expression fires more often than every ${MIN_INTERVAL_MS / 60_000} minutes: ${expression}` };
+        }
+      }
+      const active = (await listJobs()).filter(j => j.enabled && ownsJob(j, context));
+      if (active.length >= MAX_JOBS_PER_CONVERSATION) {
+        return { error: `this conversation already has ${active.length} active jobs (max ${MAX_JOBS_PER_CONVERSATION}); remove one first` };
+      }
       try {
         const job = await createJob({
           agentId,
