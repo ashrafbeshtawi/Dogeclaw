@@ -10,6 +10,10 @@ import { CronExpressionParser } from 'cron-parser';
 
 let rows = [];
 const startedRuns = [];
+const eventLogs = [];
+// Runs wait on this before failing their setup; a test that needs a run to
+// stay in flight swaps in a promise it resolves later.
+let runGate = Promise.resolve();
 
 const copyRow = row => structuredClone(row);
 
@@ -39,9 +43,9 @@ mock.module('../src/db/crons.js', {
 mock.module('../src/db/sessions.js', {
   namedExports: { loadSession: async () => {}, ensureSession: async () => {}, appendMessage: async () => {}, findActiveTelegramSession: async () => null },
 });
-mock.module('../src/db/agentRuntime.js', { namedExports: { loadAgentRuntime: async () => null } });
+mock.module('../src/db/agentRuntime.js', { namedExports: { loadAgentRuntime: async () => { await runGate; return null; } } });
 mock.module('../src/db/pool.js', { namedExports: { adminQuery: async () => ({ rows: [] }) } });
-mock.module('../src/db/eventLogs.js', { namedExports: { insertEventLog: async () => {} } });
+mock.module('../src/db/eventLogs.js', { namedExports: { insertEventLog: async ev => { eventLogs.push(ev); } } });
 
 const { CronRunner } = await import('../src/cron/runner.js');
 
@@ -60,8 +64,7 @@ function makeJob(overrides) {
 }
 
 // One tick: start() runs it immediately; stop() clears the interval.
-async function runOneTick() {
-  const runner = new CronRunner(null, null);
+async function runOneTick(runner = new CronRunner(null, null)) {
   await runner.start();
   runner.stop();
   await new Promise(r => setTimeout(r, 20));
@@ -70,6 +73,7 @@ async function runOneTick() {
 function resetTable(jobs) {
   rows = jobs;
   startedRuns.length = 0;
+  eventLogs.length = 0;
 }
 
 test('plans recurring jobs from updated_at and one-shots at run_at', async () => {
@@ -110,4 +114,29 @@ test('late runs start once, however late, and a recurring job moves on from now'
   await runOneTick();
   assert.deepEqual(startedRuns.sort(), [1, 2]);
   assert.ok(rows[1].nextRunAt > new Date(), 'missed slots are not replayed');
+});
+
+test('a slot due while the previous run is still going is skipped and logged', async () => {
+  resetTable([makeJob({ id: 1, schedule: recurring('*/5 * * * *'), nextRunAt: minutesAgo(1) })]);
+  let finishRun;
+  runGate = new Promise(r => { finishRun = r; });
+  const runner = new CronRunner(null, null);
+  try {
+    await runOneTick(runner);
+    assert.deepEqual(startedRuns, [], 'first run is still in flight');
+
+    rows[0].nextRunAt = minutesAgo(0.5); // the next slot comes due
+    await runOneTick(runner);
+    assert.ok(rows[0].nextRunAt > new Date(), 'the skipped slot is claimed, not left due');
+    assert.deepEqual(eventLogs.map(e => [e.refId, e.status]), [[1, 'skipped']]);
+  } finally {
+    finishRun();
+    runGate = Promise.resolve();
+  }
+  await new Promise(r => setTimeout(r, 20));
+  assert.deepEqual(startedRuns, [1], 'only the first run went ahead');
+
+  rows[0].nextRunAt = minutesAgo(0.5);
+  await runOneTick(runner);
+  assert.deepEqual(startedRuns, [1, 1], 'once it ends, the next slot starts again');
 });

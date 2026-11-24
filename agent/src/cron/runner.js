@@ -25,10 +25,14 @@ const TICK_MS = 15_000;
 // through db/crons.js take effect on the next tick without any reload.
 // A run found due late (the process was down over its slot) still fires,
 // once: the next run is planned from now, so missed slots never pile up.
+// A slot that comes due while the job's previous run is still going is
+// claimed but skipped, so a run that outlasts its interval never queues
+// more runs behind the session lock.
 export class CronRunner {
   #agent;
   #telegramManager;
   #tickTimer = null;
+  #runningJobIds = new Set();
 
   constructor(agent, telegramManager) {
     this.#agent = agent;
@@ -74,13 +78,32 @@ export class CronRunner {
           : computeNextCronRun(schedule.expression, job.timezone, now);
         const claimed = await claimDueRun(job, nextRunAt);
         if (!claimed) continue;
-        this.#dispatch(claimed).catch(err =>
-          console.error(`[cron] job ${job.id} dispatch:`, err.message),
-        );
+        if (this.#runningJobIds.has(job.id)) {
+          this.#logSkipped(claimed);
+          continue;
+        }
+        this.#runningJobIds.add(job.id);
+        this.#dispatch(claimed)
+          .catch(err => console.error(`[cron] job ${job.id} dispatch:`, err.message))
+          .finally(() => this.#runningJobIds.delete(job.id));
       } catch (err) {
         console.error(`[cron] job ${job.id} cannot be claimed:`, err.message);
       }
     }
+  }
+
+  #logSkipped(job) {
+    console.warn(`[cron] job ${job.id} skipped: previous run still running`);
+    insertEventLog({
+      kind: 'cron_run',
+      refId: job.id,
+      status: 'skipped',
+      input: job.prompt,
+      output: null,
+      error: 'previous run still running',
+      durationMs: 0,
+      meta: { agent_id: job.agentId, one_shot: job.schedule.kind === 'oneShot' },
+    }).catch(err => console.error(`[cron] event log insert failed:`, err.message));
   }
 
   // `job` is the row as claimed, so a one-shot arrives already disabled.

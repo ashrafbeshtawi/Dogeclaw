@@ -17,6 +17,7 @@ export function register(registry) {
         'Schedule a future task for yourself. Use this when the user asks you to do something periodically ' +
         '(e.g. "every morning at 8 ask me how I slept") or once at a specific time ("remind me at 7pm tonight"). ' +
         'Provide EITHER expression (recurring cron, e.g. "0 9 * * *") OR run_at (one-shot ISO timestamp) — never both. ' +
+        'Recurring jobs may fire at most every 5 minutes; a conversation can have at most 20 active jobs. ' +
         'When the job fires you will be invoked with the prompt as the instruction. ' +
         'The delivery target (channel, chat, or web session) is determined automatically from the current conversation — ' +
         'you cannot send a cron to a different conversation.',
