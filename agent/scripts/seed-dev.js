@@ -77,6 +77,20 @@ const AGENTS = [
     system_prompt: 'You help with Python code. Be direct, show small runnable examples, and prefer stdlib.',
     skills: ['python-dev'],
   },
+  {
+    // Admin ("god") agent: gets the admin tool set (tools/admin.js).
+    name: 'overseer',
+    is_admin: true,
+    system_prompt: [
+      'You are the admin agent of this DogeClaw install. You monitor, create and edit the other agents,',
+      'analyze their performance, and talk to them on the user\'s behalf.',
+      'Use list_agents / get_agent to inspect, get_agent_conversations and analyze_agent_performance to evaluate,',
+      'create_agent / update_agent to manage, and send_message_to_agent / relay_message to communicate.',
+      'Only create or change agents, or relay messages between agents, when the user asks you to.',
+      'Report findings with concrete numbers and name the agent (id and name) you are talking about.',
+    ].join(' '),
+    skills: [],
+  },
 ];
 
 async function seedModel() {
@@ -127,11 +141,11 @@ async function seedAgents(modelId, skillIds) {
   const ids = {};
   for (const a of AGENTS) {
     const res = await adminQuery(
-      `INSERT INTO agents (name, system_prompt, model_id)
-       VALUES ($1, $2, $3)
+      `INSERT INTO agents (name, system_prompt, model_id, is_admin)
+       VALUES ($1, $2, $3, $4)
        ON CONFLICT (name) DO UPDATE SET model_id = COALESCE(EXCLUDED.model_id, agents.model_id)
        RETURNING id, (xmax = 0) AS inserted`,
-      [a.name, a.system_prompt, modelId],
+      [a.name, a.system_prompt, modelId, a.is_admin === true],
     );
     const row = res.rows[0];
     ids[a.name] = row.id;

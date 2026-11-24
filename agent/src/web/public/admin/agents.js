@@ -2,7 +2,8 @@ import { state, api, esc, find, closeModal, load, onRender } from './store.js';
 
 export function renderAgents() {
     document.getElementById('agentsTable').innerHTML = state.agents.map(function(a) {
-        return '<tr><td><strong>'+esc(a.name)+'</strong></td><td>'+(esc(a.model_name)||'<span style="opacity:0.4">none</span>')+'</td>'
+        var badge = a.is_admin ? ' <span class="badge badge-sm badge-on">admin</span>' : '';
+        return '<tr><td><strong>'+esc(a.name)+'</strong>'+badge+'</td><td>'+(esc(a.model_name)||'<span style="opacity:0.4">none</span>')+'</td>'
             +'<td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(a.system_prompt)+'</td>'
             +'<td class="actions"><button onclick="editAgent('+a.id+')">Edit</button>'
             +'<button class="danger" onclick="deleteAgent('+a.id+')">Delete</button></td></tr>';
@@ -19,6 +20,7 @@ export function openAgentModal(a) {
     document.getElementById('agentPrompt').value = a?a.system_prompt:'';
     document.getElementById('agentModel').innerHTML = '<option value="">(default)</option>'+state.models.map(function(m){return '<option value="'+m.id+'">'+esc(m.name)+' ('+esc(m.model_id)+')</option>';}).join('');
     document.getElementById('agentModel').value = a&&a.model_id?a.model_id:'';
+    document.getElementById('agentIsAdmin').checked = !!(a&&a.is_admin);
     var assignedSkills = a ? (a.skill_ids || []) : [];
     document.getElementById('agentSkillsCheckboxes').innerHTML = state.skills.length === 0
         ? '<span style="opacity:0.5;font-size:0.8rem">No skills yet. Create skills first.</span>'
@@ -32,7 +34,7 @@ export function editAgent(id){openAgentModal(id);}
 export async function saveAgent() {
     var id = document.getElementById('agentId').value;
     var mid = document.getElementById('agentModel').value;
-    var body = {name:document.getElementById('agentName').value, system_prompt:document.getElementById('agentPrompt').value, model_id:mid?parseInt(mid):null};
+    var body = {name:document.getElementById('agentName').value, system_prompt:document.getElementById('agentPrompt').value, model_id:mid?parseInt(mid):null, is_admin:document.getElementById('agentIsAdmin').checked};
     var saved;
     if (id) saved = await api('PUT','/api/agents/'+id,body);
     else saved = await api('POST','/api/agents',body);
