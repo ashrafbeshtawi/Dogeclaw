@@ -31,14 +31,23 @@ export async function assertPublicUrl(url, { lookup = dnsLookup } = {}) {
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     throw new Error(`Blocked non-http(s) URL: ${url}`);
   }
-  const host = parsed.hostname.replace(/^\[|\]$/g, ''); // [::1] bracket form
+  await resolvePublicAddress(parsed.hostname, { lookup });
+  return parsed;
+}
+
+// The address a connection to hostname must use: throws unless every address
+// it resolves to is public, then returns the first. Connecting to exactly this
+// address (instead of resolving again) is what stops DNS rebinding.
+export async function resolvePublicAddress(hostname, { lookup = dnsLookup } = {}) {
+  const host = hostname.replace(/^\[|\]$/g, ''); // [::1] bracket form
   const addresses = isIP(host)
     ? [{ address: host }]
     : await lookup(host, { all: true });
+  if (addresses.length === 0) throw new Error(`Could not resolve ${hostname}`);
   for (const { address } of addresses) {
     if (isPrivateAddress(address)) {
-      throw new Error(`Blocked private/internal address: ${parsed.hostname} resolves to ${address}`);
+      throw new Error(`Blocked private/internal address: ${hostname} resolves to ${address}`);
     }
   }
-  return parsed;
+  return addresses[0].address;
 }
