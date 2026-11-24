@@ -8,9 +8,11 @@
 
 import * as google from './llm/google.js';
 import * as ollama from './llm/ollama.js';
+import * as openaiCompatible from './llm/openaiCompatible.js';
 import * as openrouter from './llm/openrouter.js';
+import * as requesty from './llm/requesty.js';
 
-const PROVIDERS = { google, ollama, openrouter };
+const PROVIDERS = { google, ollama, openrouter, requesty, 'openai-compatible': openaiCompatible };
 const DEFAULT_PROVIDER = 'ollama';
 
 // An unset provider is the documented default. A provider we don't know is a
