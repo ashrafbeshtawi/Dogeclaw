@@ -81,6 +81,19 @@ test.describe('API auth boundary', () => {
     expect(out.status()).toBe(200);
   });
 
+  test('a cookie computed from a public default secret is rejected', async () => {
+    // Before the token carried a time and a nonce, the cookie was the fixed
+    // HMAC(secret, 'authenticated'); with a default secret anyone could build it.
+    const { createHmac } = require('node:crypto');
+    for (const secret of ['dogeclaw-default-secret-change-me', 'dogeclaw-change-me']) {
+      const forged = createHmac('sha256', secret).update('authenticated').digest('hex');
+      const res = await anon.get('/api/settings', {
+        headers: { Accept: 'application/json', Cookie: `dogeclaw_token=${forged}` },
+      });
+      expect(res.status()).toBe(401);
+    }
+  });
+
   test('a page request redirects to login instead of returning JSON', async () => {
     const res = await anon.get('/admin', { maxRedirects: 0 });
     expect(res.status()).toBe(302);

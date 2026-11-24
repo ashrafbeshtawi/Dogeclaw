@@ -65,8 +65,12 @@ jobs:
         working-directory: ./tests
         run: npx playwright install --with-deps chromium
 
+      # A fixed secret for the whole run: migrate.spec restarts the agent, and with
+      # no secret set every restart picks a random one and logs the tests out.
       - name: Bring up the stack
-        run: docker compose up -d --build
+        run: |
+          echo "::add-mask::$(openssl rand -hex 32 | tee /tmp/web-secret)"
+          DOGECLAW_WEB_SECRET=$(cat /tmp/web-secret) docker compose up -d --build
 
       - name: Wait for the agent to come up
         run: |
