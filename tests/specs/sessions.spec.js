@@ -34,6 +34,28 @@ test.describe('chat UI session list', () => {
     }
   });
 
+  test('a preview containing HTML is shown as text, never run', async ({ page }) => {
+    const sid = `pw-sess-xss-${Date.now()}`;
+    const payload = '<img src=x onerror=window.__xss=1>';
+    psql(`
+      INSERT INTO sessions (id, agent_id, agent_name, source)
+      VALUES ('${sid}', ${agentId}, 'pw-sess-agent', 'telegram');
+      INSERT INTO session_messages (session_id, role, content)
+      VALUES ('${sid}', 'user', '${payload}');
+    `);
+
+    try {
+      await page.goto('/');
+      const item = page.locator('#sessions .session-item', { hasText: payload });
+      await expect(item).toBeVisible();
+      await expect(item.locator('.session-label')).toHaveText(payload);
+      await expect(item.locator('img')).toHaveCount(0);
+      expect(await page.evaluate(() => window.__xss)).toBeUndefined();
+    } finally {
+      psql(`DELETE FROM sessions WHERE id = '${sid}';`);
+    }
+  });
+
   test('deleting a session with attached crons shows a warning dialog', async ({ page, request }) => {
     const sid = `pw-sess-warn-${Date.now()}`;
     const marker = `pw-preview-warn-${Date.now()}`;
