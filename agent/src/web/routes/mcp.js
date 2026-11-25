@@ -1,6 +1,7 @@
 import express from 'express';
 import { listServers as listMcpServers, createServer as createMcpServer, updateServer as updateMcpServer, deleteServer as deleteMcpServer, setServerAgents as setMcpServerAgents } from '../../db/mcpServers.js';
 import { getMcpManager } from '../managers.js';
+import { requireFields } from '../../lib/requireFields.js';
 
 // Mounted under /api behind authMiddleware in server.js; no per-route guards needed.
 export function mcpRoutes() {
@@ -24,7 +25,8 @@ export function mcpRoutes() {
   const mcpFieldsFromBody = (body) => {
     const { name, description, transport, command, args, env, url, headers, enabled } = body;
     const tr = transport || 'stdio';
-    if (!name) return { error: 'name required' };
+    const required = requireFields(body, ['name']);
+    if (required.error) return required;
     if (!MCP_NAME_RE.test(name)) {
       return { error: 'name must match [a-zA-Z0-9_-]+ (it becomes the tool prefix)' };
     }
@@ -93,8 +95,8 @@ export function mcpRoutes() {
   router.post('/mcp/discover', async (req, res) => {
     const { transport, command, args, env, url, headers } = req.body;
     const tr = transport || 'stdio';
-    if (tr === 'stdio' && !command) return res.status(400).json({ error: 'command required' });
-    if (tr === 'http' && !url) return res.status(400).json({ error: 'url required' });
+    const { error } = requireFields(req.body, { stdio: ['command'], http: ['url'] }[tr] ?? []);
+    if (error) return res.status(400).json({ error });
     if (!getMcpManager()) return res.status(503).json({ error: 'MCP manager not ready' });
     try {
       const tools = await getMcpManager().discover({

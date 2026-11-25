@@ -1,6 +1,7 @@
 import express from 'express';
 import { adminQuery as query } from '../../db/pool.js';
 import { reloadTelegram } from '../managers.js';
+import { requireFields } from '../../lib/requireFields.js';
 
 // Mounted under /api behind authMiddleware in server.js; no per-route guards needed.
 export function modelsRoutes() {
@@ -13,8 +14,9 @@ export function modelsRoutes() {
   });
 
   router.post('/models', async (req, res) => {
+    const { error } = requireFields(req.body, ['name', 'model_id']);
+    if (error) return res.status(400).json({ error });
     const { name, provider, base_url, model_id, api_key, think, accepts } = req.body;
-    if (!name || !model_id) return res.status(400).json({ error: 'name and model_id required' });
     const result = await query(
       'INSERT INTO models (name, provider, base_url, model_id, api_key, think, accepts) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *',
       [name, provider || 'ollama', base_url || 'http://ollama:11434', model_id, api_key || null, think || false, JSON.stringify(accepts || ['text'])],
