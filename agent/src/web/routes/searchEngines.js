@@ -1,6 +1,7 @@
 import express from 'express';
 import { listEngines as listSearchEngines, createEngine as createSearchEngine, updateEngine as updateSearchEngine, deleteEngine as deleteSearchEngine, reorderEngines as reorderSearchEngines } from '../../db/searchEngines.js';
 import { PROVIDERS as SEARCH_PROVIDERS } from '../../lib/searchProviders.js';
+import { requireFields } from '../../lib/requireFields.js';
 
 // Mounted under /api behind authMiddleware in server.js; no per-route guards needed.
 export function searchEnginesRoutes() {
@@ -17,7 +18,8 @@ export function searchEnginesRoutes() {
     if (!(provider in SEARCH_PROVIDERS)) {
       return { error: `provider must be one of: ${Object.keys(SEARCH_PROVIDERS).join(', ')}` };
     }
-    if (!api_key) return { error: 'api_key required' };
+    const required = requireFields(body, ['api_key']);
+    if (required.error) return required;
     if (provider === 'google' && !cx) {
       return { error: 'cx (Programmable Search Engine ID) required for google' };
     }

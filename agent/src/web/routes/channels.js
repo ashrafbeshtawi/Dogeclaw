@@ -2,6 +2,7 @@ import express from 'express';
 import { adminQuery as query } from '../../db/pool.js';
 import { BOT_COMMANDS } from '../../channels/telegram.js';
 import { getTelegramManager, reloadTelegram } from '../managers.js';
+import { requireFields } from '../../lib/requireFields.js';
 
 // Mounted under /api behind authMiddleware in server.js; no per-route guards needed.
 export function channelsRoutes() {
@@ -39,8 +40,9 @@ export function channelsRoutes() {
   });
 
   router.post('/channels', async (req, res) => {
+    const { error } = requireFields(req.body, ['agent_id', 'type', 'name']);
+    if (error) return res.status(400).json({ error });
     const { agent_id, type, name, token, allowed_users, response_mode, response_interval } = req.body;
-    if (!agent_id || !type || !name) return res.status(400).json({ error: 'agent_id, type, and name required' });
     if (type === 'telegram' && !token) return res.status(400).json({ error: 'token required for telegram channels' });
     // webhook_id is minted by the DB default at INSERT and never changes —
     // the telegram manager's #startBot registers the route and points

@@ -1,5 +1,6 @@
 import express from 'express';
 import { adminQuery as query } from '../../db/pool.js';
+import { requireFields } from '../../lib/requireFields.js';
 
 // Mounted under /api behind authMiddleware in server.js; no per-route guards needed.
 export function skillsRoutes() {
@@ -18,8 +19,9 @@ export function skillsRoutes() {
   });
 
   router.post('/skills', async (req, res) => {
+    const { error } = requireFields(req.body, ['name']);
+    if (error) return res.status(400).json({ error });
     const { name, description, content, agent_ids } = req.body;
-    if (!name) return res.status(400).json({ error: 'name required' });
     const result = await query(
       'INSERT INTO skills (name, description, content) VALUES ($1, $2, $3) RETURNING *',
       [name, description || '', content || ''],
