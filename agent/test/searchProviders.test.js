@@ -74,10 +74,16 @@ test('searchBrave sends the token header and surfaces API errors', async () => {
 });
 
 // A provider that accepts the request but never answers: like real fetch, it
-// only settles when the passed AbortSignal fires.
+// only settles when the passed AbortSignal fires. AbortSignal.timeout's timer
+// is unref'd, so the fake holds a ref'd handle (as a real open socket would)
+// or the test runner sees an idle event loop and cancels the test.
 const stalledFetch = (url, opts) => new Promise((_, reject) => {
   assert.ok(opts?.signal, 'fetch must be given an AbortSignal');
-  opts.signal.addEventListener('abort', () => reject(opts.signal.reason));
+  const keepAlive = setInterval(() => {}, 1000);
+  opts.signal.addEventListener('abort', () => {
+    clearInterval(keepAlive);
+    reject(opts.signal.reason);
+  });
 });
 
 test('providers pass a default 10s AbortSignal to fetch', async () => {
