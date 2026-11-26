@@ -356,7 +356,8 @@
             <input type="text" id="channelToken" placeholder="123456:ABC-DEF...">
             <div class="field-hint" id="webhookHint"></div>
             <label>Allowed Users (comma-separated Telegram user IDs)</label>
-            <input type="text" id="channelUsers" placeholder="748203222">
+            <input type="text" id="channelUsers" placeholder="123456789,987654321">
+            <div class="field-hint">Only these users get answers. Empty means nobody is allowed. Messages from other users are ignored and their id is written to the log, so you can copy it here.</div>
             <label>Response Mode</label>
             <select id="channelMode"><option value="immediate">Immediate</option><option value="periodic">Periodic</option></select>
             <label>Interval (for periodic, e.g. 30m, 1h)</label>

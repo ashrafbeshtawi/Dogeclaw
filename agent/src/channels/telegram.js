@@ -27,6 +27,16 @@ export const BOT_COMMANDS = [
   { command: 'cron',  description: 'List scheduled jobs (use /cron rm <id> to remove one)' },
 ];
 
+// Allowed Users is an allowlist: an empty (or missing) list lets nobody in.
+// The agent behind a bot has run_command, so "blank means everyone" would
+// hand a shell to anyone who finds the bot in Telegram search.
+// BIGINT[] comes back from pg as strings — compare as strings so the
+// numeric msg.from.id always matches.
+export function isAllowedUser(allowedUsers, userId) {
+  if (!Array.isArray(allowedUsers) || allowedUsers.length === 0) return false;
+  return allowedUsers.map(String).includes(String(userId));
+}
+
 export class TelegramManager {
   #agent;
   #expressApp;
@@ -172,14 +182,11 @@ export class TelegramManager {
       // Look up the LIVE channel config on every message. This is what makes
       // model swaps in the admin UI take effect without restarting the bot.
       const current = this.#channelById.get(channelId) || channel;
-      // BIGINT[] comes back from pg as strings — compare as strings so the
-      // numeric msg.from.id always matches.
-      const allowedUsers = (current.allowed_users || []).map(String);
-
       console.log(`[telegram] ${current.name}: message from ${msg.from.id}: ${(msg.text || '(media)').slice(0, 50)}`);
 
-      if (allowedUsers.length > 0 && !allowedUsers.includes(String(msg.from.id))) {
-        console.log(`[telegram] ${current.name}: user ${msg.from.id} not in allowlist`);
+      if (!isAllowedUser(current.allowed_users, msg.from.id)) {
+        // The id is logged so the owner can copy it into Allowed Users.
+        console.log(`[telegram] ${current.name}: user ${msg.from.id} not in allowlist, ignored`);
         return;
       }
 

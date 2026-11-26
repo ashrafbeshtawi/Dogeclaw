@@ -184,6 +184,7 @@ async function seedTelegramChannel(agentIds) {
     [assistantId, TG_CHANNEL_NAME, TG_TOKEN],
   );
   console.log(`[seed] telegram channel "${TG_CHANNEL_NAME}" created (id=${res.rows[0].id})`);
+  console.log('[seed] its Allowed Users list is empty, so the bot answers nobody: add your Telegram user id in the admin UI');
 }
 
 async function main() {
