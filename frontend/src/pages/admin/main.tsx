@@ -5,7 +5,7 @@ import { GooeyNav } from '@/components/ui/gooey-nav';
 import { Toaster } from '@/components/ui/toast';
 import { RareUiCredit } from '@/RareUiCredit';
 import { api } from '@/api';
-import { EMPTY_DATA, type AdminData } from './data';
+import { EMPTY_DATA, toAdminData, type AdminData } from './data';
 import type { TabProps } from './ui';
 import { Models } from './tabs/Models';
 import { Agents } from './tabs/Agents';
@@ -36,17 +36,12 @@ function tabFromHash() {
 }
 
 async function loadAll(): Promise<AdminData> {
-  const r = await Promise.all([
+  return toAdminData(await Promise.all([
     api('GET', '/api/models'), api('GET', '/api/agents'), api('GET', '/api/channels'),
     api('GET', '/api/skills'), api('GET', '/api/config'), api('GET', '/api/cron-jobs'),
     api('GET', '/api/sessions'), api('GET', '/api/settings'), api('GET', '/api/mcp'),
     api('GET', '/api/search-engines'),
-  ]);
-  return {
-    models: r[0].models, agents: r[1].agents, channels: r[2].channels, skills: r[3].skills,
-    siteConfig: r[4], crons: r[5].jobs || [], sessions: r[6].sessions || [], settings: r[7] || {},
-    mcpServers: r[8].servers || [], searchEngines: r[9].engines || [], searchProviders: r[9].providers || [],
-  };
+  ]));
 }
 
 function Admin() {

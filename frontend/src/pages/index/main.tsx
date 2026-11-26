@@ -7,7 +7,7 @@ import { StreamingResponse } from '@/components/ui/streaming-response';
 import FluidOrb from '@/components/ui/fluid-orb';
 import { Toaster, toast } from '@/components/ui/toast';
 import { RareUiCredit } from '@/RareUiCredit';
-import { api } from '@/api';
+import { api, listOf } from '@/api';
 import { ToolCallModal, ToolCallsBlock } from './ToolCalls';
 import { attachResult, type ToolCall } from './toolCalls';
 import { updateByKey } from './messages';
@@ -62,15 +62,16 @@ function Chat() {
 
   async function loadAgents() {
     const [agentData, modelData] = await Promise.all([api('GET', '/api/agents'), api('GET', '/api/models')]);
-    setAgents(agentData.agents);
-    setHasModels(modelData.models?.length > 0);
-    setAgentId((current) => current ?? agentData.agents.find((a: Agent) => a.model_id)?.id ?? null);
+    const list = listOf<Agent>(agentData, 'agents');
+    setAgents(list);
+    setHasModels(listOf(modelData, 'models').length > 0);
+    setAgentId((current) => current ?? list.find((a) => a.model_id)?.id ?? null);
     setLoaded(true);
   }
 
   const loadSessions = useCallback(async () => {
     const data = await api('GET', '/api/sessions');
-    setSessions(data.sessions);
+    setSessions(listOf(data, 'sessions'));
   }, []);
 
   useEffect(() => { loadAgents(); loadSessions(); }, []);

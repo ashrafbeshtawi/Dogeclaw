@@ -2,8 +2,33 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   countCronViews, cronAgents, cronMatchesFilter, cronSortValue, cronTargetKey, eventPreview,
-  isCronFailed, keyValueLines, maskKey, nextCronSort, parseKeyValueLines, selectCrons, DEFAULT_CRON_SORT,
+  isCronFailed, keyValueLines, maskKey, nextCronSort, parseKeyValueLines, selectCrons, toAdminData, DEFAULT_CRON_SORT,
 } from '../src/pages/admin/data.ts';
+import { listOf } from '../src/api.ts';
+
+test('listOf returns the array, or [] for an error body or a missing key', () => {
+  assert.deepEqual(listOf({ agents: [{ id: 1 }] }, 'agents'), [{ id: 1 }]);
+  assert.deepEqual(listOf({ error: 'db down' }, 'agents'), []);
+  assert.deepEqual(listOf(null, 'agents'), []);
+  assert.deepEqual(listOf({ agents: 'nope' }, 'agents'), []);
+});
+
+test('toAdminData keeps the other tabs when one boot request failed', () => {
+  const ok = [
+    { models: [{ id: 1 }] }, { error: 'agents exploded' }, { channels: [] }, { skills: [] }, { base_url: 'x' },
+    { jobs: [] }, { sessions: [] }, { error: 'settings exploded' }, { servers: [] }, { engines: [{ id: 2 }], providers: ['brave'] },
+  ];
+  const data = toAdminData(ok);
+  assert.deepEqual(data.models, [{ id: 1 }]);
+  assert.deepEqual(data.agents, []);
+  assert.deepEqual(data.settings, {});
+  assert.deepEqual(data.siteConfig, { base_url: 'x' });
+  assert.deepEqual(data.searchEngines, [{ id: 2 }]);
+  assert.deepEqual(data.searchProviders, ['brave']);
+  for (const key of ['models', 'agents', 'channels', 'skills', 'crons', 'sessions', 'mcpServers', 'searchEngines', 'searchProviders'] as const) {
+    assert.ok(Array.isArray(toAdminData(Array(10).fill({ error: 'down' }))[key]), key);
+  }
+});
 
 const job = (fields: Record<string, unknown>) => ({ id: 1, enabled: true, ...fields });
 

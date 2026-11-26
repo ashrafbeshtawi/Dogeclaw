@@ -1,6 +1,8 @@
 // Everything the admin page loads, plus the pure helpers the tabs share.
 // Rows are typed loosely: the API shapes live in agent/src/web/routes.
 
+import { listOf } from '../../api.ts';
+
 export type Row = Record<string, any> & { id: number };
 
 export type AdminData = {
@@ -14,6 +16,18 @@ export const EMPTY_DATA: AdminData = {
   models: [], agents: [], channels: [], skills: [], siteConfig: {}, crons: [],
   sessions: [], settings: {}, mcpServers: [], searchEngines: [], searchProviders: [],
 };
+
+// The admin boot replies, in loadAll's request order, mapped to AdminData. A
+// failed request ({ error } body) only empties its own part of the page.
+export function toAdminData(r: any[]): AdminData {
+  const object = (body: any) => (body && typeof body === 'object' && !body.error ? body : {});
+  return {
+    models: listOf(r[0], 'models'), agents: listOf(r[1], 'agents'), channels: listOf(r[2], 'channels'),
+    skills: listOf(r[3], 'skills'), siteConfig: object(r[4]), crons: listOf(r[5], 'jobs'),
+    sessions: listOf(r[6], 'sessions'), settings: object(r[7]), mcpServers: listOf(r[8], 'servers'),
+    searchEngines: listOf(r[9], 'engines'), searchProviders: listOf(r[9], 'providers'),
+  };
+}
 
 // Browsers list canonical zones only, which leaves out UTC — the stored default.
 const ZONES: string[] = Intl.supportedValuesOf?.('timeZone') ?? [];
