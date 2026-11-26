@@ -26,10 +26,11 @@ test.describe('markdown in assistant replies', () => {
   test('javascript: and data: links and raw HTML stay inert', async ({ page }) => {
     const sid = `pw-markdown-${Date.now()}`;
     const marker = `pw-markdown-reply-${Date.now()}`;
-    const img = '<img src=x onerror="window.__pwXss=1">';
+    // No underscores in the payload: markdown would read them as emphasis.
+    const img = '<img src=x onerror="window.pwMdXss=1">';
     const reply = [
       marker,
-      '[js link](javascript:window.__pwXss=1) [data link](data:text/html,<script>window.__pwXss=1</script>)',
+      '[js link](javascript:window.pwMdXss=1) [data link](data:text/html,<script>window.pwMdXss=1</script>)',
       '[safe link](https://example.com/pw)',
       img,
     ].join('\n\n');
@@ -60,7 +61,7 @@ test.describe('markdown in assistant replies', () => {
       await expect(message.locator('img, script')).toHaveCount(0);
 
       await message.getByText('js link').click();
-      expect(await page.evaluate(() => window.__pwXss)).toBeUndefined();
+      expect(await page.evaluate(() => window.pwMdXss)).toBeUndefined();
     } finally {
       psql(`DELETE FROM sessions WHERE id = '${sid}';`);
     }
