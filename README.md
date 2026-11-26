@@ -186,6 +186,7 @@ Configure models per-agent across three providers, all routed through one unifie
 ### Telegram bots
 - Multiple bots, each backed by a different agent, configured from the admin UI
 - **Polling** mode (no public URL needed — perfect for local dev) or **webhook** mode for production
+- **Allowed Users** is an allowlist of Telegram user ids: only those users get answers, and an **empty list means nobody is allowed**. Messages from anyone else are ignored and their user id is logged (`user <id> not in allowlist`), so you can copy it into the channel
 - **Media routing** by the model's declared `accepts` list: voice / photo / video bytes are forwarded only to models that can consume them (e.g. Gemini via `inline_data`). Anything else turns into an `[Attached: <type>]` hint so the model still knows the user sent something
 - Two response modes: **immediate** (reply per message) or **periodic** (batch and reply on a cron schedule)
 

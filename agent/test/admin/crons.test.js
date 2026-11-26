@@ -49,11 +49,11 @@ test('cronSortValue falls back to run_at for one-shots with no expression', () =
 test('cronMatchesFilter searches every field it claims to', () => {
   const job = {
     agent_name: 'Ops', prompt: 'send the report', description: 'daily digest',
-    expression: '0 9 * * *', channel_name: 'alerts', chat_id: '748203222',
+    expression: '0 9 * * *', channel_name: 'alerts', chat_id: '123456789',
     session_id: 'tg-abc', timezone: 'Europe/Berlin',
   };
   assert.equal(cronMatchesFilter(job, ''), true);
-  for (const q of ['report', 'digest', '748203222', 'berlin', 'alerts', '0 9']) {
+  for (const q of ['report', 'digest', '123456789', 'berlin', 'alerts', '0 9']) {
     assert.equal(cronMatchesFilter(job, q), true, `should match ${q}`);
   }
   assert.equal(cronMatchesFilter(job, 'nothing-matches-this'), false);

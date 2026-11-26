@@ -109,14 +109,14 @@ test.describe('admin script extraction', () => {
     const hits = await page.evaluate(() => {
       const job = {
         agent_name: 'Ops', prompt: 'send the report', description: 'daily digest',
-        expression: '0 9 * * *', channel_name: 'alerts', chat_id: '748203222',
+        expression: '0 9 * * *', channel_name: 'alerts', chat_id: '123456789',
         session_id: 'tg-abc', timezone: 'Europe/Berlin',
       };
       return {
         empty: cronMatchesFilter(job, ''),
         byPrompt: cronMatchesFilter(job, 'report'),
         byDescription: cronMatchesFilter(job, 'digest'),
-        byChatId: cronMatchesFilter(job, '748203222'),
+        byChatId: cronMatchesFilter(job, '123456789'),
         byTimezone: cronMatchesFilter(job, 'berlin'),
         miss: cronMatchesFilter(job, 'nothing-matches-this'),
       };
