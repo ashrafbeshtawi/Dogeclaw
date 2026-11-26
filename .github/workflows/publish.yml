@@ -37,6 +37,7 @@ jobs:
           cache-dependency-path: |
             tests/package-lock.json
             agent/package-lock.json
+            frontend/package-lock.json
 
       # Installing agent deps serves double duty: the unit tests below run
       # with the full dependency graph (cheerio tests included, no skip
@@ -56,6 +57,16 @@ jobs:
       - name: Unit tests (agent)
         working-directory: ./agent
         run: npm test
+
+      # The built UI is committed (the image has no build step), so a change
+      # under frontend/ without a rebuild would ship the old pages.
+      - name: Frontend unit tests and build check
+        working-directory: ./frontend
+        run: |
+          npm ci
+          npm test
+          npm run build
+          git diff --exit-code -- ../agent/src/web/public
 
       - name: Install test dependencies
         working-directory: ./tests

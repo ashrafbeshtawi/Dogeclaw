@@ -19,9 +19,7 @@ test.describe('settings tab', () => {
     try {
       await openAdminTab(page, 'settings');
       await page.selectOption('#settingTimezone', target);
-      // saveTimezone() calls load() which alerts on success path — accept dialogs
-      page.on('dialog', d => d.accept());
-      await page.click('button:has-text("Save")');
+      await page.locator('#tab-settings tr', { has: page.locator('#settingTimezone') }).locator('button:has-text("Save")').click();
 
       // Poll the API directly to verify persistence
       await expect.poll(async () => {

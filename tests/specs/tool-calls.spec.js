@@ -14,15 +14,22 @@ const LONG_RESULT_TAIL = 'pw-result-tail-marker';
 const longResult = { results: [...Array.from({ length: 20 }, (_, i) => `result line ${i} `.repeat(3)), LONG_RESULT_TAIL] };
 
 test.describe('tool calls in the chat UI', () => {
-  let agentId;
+  let agentId, modelId;
 
   test.beforeAll(async ({ request }) => {
-    const a = await request.post('/api/agents', { data: { name: 'pw-toolcalls-agent', system_prompt: '' } });
+    // The composer only accepts input once some agent has a model; /api/chat
+    // itself is faked below, so the model is never called.
+    const m = await request.post('/api/models', {
+      data: { name: 'pw-toolcalls-model', provider: 'ollama', base_url: 'http://ollama:11434', model_id: 'pw-none' },
+    });
+    modelId = (await m.json()).id;
+    const a = await request.post('/api/agents', { data: { name: 'pw-toolcalls-agent', system_prompt: '', model_id: modelId } });
     agentId = (await a.json()).id;
   });
 
   test.afterAll(async ({ request }) => {
     if (agentId) await request.delete(`/api/agents/${agentId}`);
+    if (modelId) await request.delete(`/api/models/${modelId}`);
   });
 
   test('history: rows per call, trimmed args and result, full details in the modal', async ({ page }) => {
@@ -145,13 +152,9 @@ test.describe('tool calls in the chat UI', () => {
       route.fulfill({ status: 200, headers: { 'content-type': 'text/event-stream' }, body }));
 
     await page.goto('/');
-    // loadAgents() rewrites #messages when it finishes (setup hint on a stack
-    // without models) — let it land before streaming into the list.
-    await expect(page.locator('#agentSelect option').first()).toBeAttached();
-    await page.evaluate(() => {
-      document.getElementById('input').value = 'pw-live-question';
-      send();
-    });
+    await expect(page.locator('#input')).toBeEnabled();
+    await page.fill('#input', 'pw-live-question');
+    await page.press('#input', 'Enter');
 
     const message = page.locator('.msg.assistant', { hasText: 'pw-live-answer' });
     await expect(message).not.toHaveClass(/streaming/);

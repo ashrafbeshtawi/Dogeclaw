@@ -36,6 +36,7 @@ purges those rows before each run.
 | `specs/settings.spec.js` | timezone select, persistence, cron-modal default |
 | `specs/sessions.spec.js` | chat UI session list + cron-warning dialog |
 | `specs/tool-calls.spec.js` | chat UI tool calls: per-call rows, trimmed args/results, detail modal (history + live stream) |
+| `specs/markdown-safety.spec.js` | assistant markdown: javascript:/data: links and raw HTML stay inert, safe links work |
 | `specs/functional-api.spec.js` | API contracts: auth gating, 400/404s, FK semantics |
 | `specs/message-timestamp.spec.js` | date/time note appended to every outgoing LLM message |
 
