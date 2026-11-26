@@ -73,6 +73,71 @@ test('searchBrave sends the token header and surfaces API errors', async () => {
   } finally { restore(); }
 });
 
+// A provider that accepts the request but never answers: like real fetch, it
+// only settles when the passed AbortSignal fires.
+const stalledFetch = (url, opts) => new Promise((_, reject) => {
+  assert.ok(opts?.signal, 'fetch must be given an AbortSignal');
+  opts.signal.addEventListener('abort', () => reject(opts.signal.reason));
+});
+
+test('providers pass a default 10s AbortSignal to fetch', async () => {
+  let seenSignal;
+  const restore = stubFetch(async (url, opts) => {
+    seenSignal = opts?.signal;
+    return { ok: true, json: async () => ({}) };
+  });
+  try {
+    await searchGoogle('q', 5, { api_key: 'K', cx: 'CX' });
+    assert.ok(seenSignal instanceof AbortSignal);
+    seenSignal = undefined;
+    await searchBrave('q', 5, { api_key: 'BK' });
+    assert.ok(seenSignal instanceof AbortSignal);
+  } finally { restore(); }
+});
+
+test('a stalled provider times out instead of hanging', async () => {
+  const restore = stubFetch(stalledFetch);
+  try {
+    await assert.rejects(
+      searchGoogle('q', 5, { api_key: 'K', cx: 'CX' }, { timeoutMs: 20 }),
+      /Google search timed out after 20ms/,
+    );
+    await assert.rejects(
+      searchBrave('q', 5, { api_key: 'BK' }, { timeoutMs: 20 }),
+      /Brave search timed out after 20ms/,
+    );
+  } finally { restore(); }
+});
+
+test('a body that stalls after the headers also times out', async () => {
+  const restore = stubFetch(async (url, opts) => ({
+    ok: true,
+    json: () => stalledFetch(url, opts),
+  }));
+  try {
+    await assert.rejects(
+      searchBrave('q', 5, { api_key: 'BK' }, { timeoutMs: 20 }),
+      /Brave search timed out after 20ms/,
+    );
+  } finally { restore(); }
+});
+
+test('failover: a stalled engine times out and the next engine answers', async () => {
+  const restore = stubFetch(async (url, opts) => {
+    if (url.includes('googleapis.com')) return stalledFetch(url, opts);
+    return { ok: true, json: async () => ({ web: { results: [{ title: 'B', url: 'https://b/', description: 'D' }] } }) };
+  });
+  const started = Date.now();
+  try {
+    const results = await runSearchWithFailover(
+      [{ provider: 'google', priority: 0, api_key: 'K', cx: 'CX' }, { provider: 'brave', priority: 1, api_key: 'BK' }],
+      'q', 5, undefined, { timeoutMs: 30 },
+    );
+    assert.deepEqual(results, [{ title: 'B', url: 'https://b/', snippet: 'D' }]);
+    assert.ok(Date.now() - started < 2000, 'failover should happen right after the timeout');
+  } finally { restore(); }
+});
+
 const okProvider = results => async () => results;
 const failProvider = msg => async () => { throw new Error(msg); };
 
